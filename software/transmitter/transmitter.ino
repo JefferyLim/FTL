@@ -29,5 +29,36 @@ void blinkLED() {
   digitalWrite(irPin, ledState);
 }
 
+
+void usage(){
+  Serial.println("FTL Transmitter");
+  Serial.println("h          - prints this message")
+  Serial.println("s          - stop transmitter")
+  Serial.println("b [number] - set baud rate ")
+  Serial.println("m [string] - set transmit message ")
+}
+
+
 void loop() {
+    char incomingByte;
+    usage();
+    
+    while (Serial.available()) {
+      incomingByte = Serial.read();
+      switch (incomingByte) {
+        case 's':  // your hand is on the sensor
+          Serial.println("stop");
+          break;
+        case 'b':  // your hand is close to the sensor
+          Serial.println("baud");
+          break;
+        case 'm':  // your hand is a few inches from the sensor
+          Serial.println("message");
+          break;
+        default:
+          usage();
+          break;
+      }
+  }
+
 }
