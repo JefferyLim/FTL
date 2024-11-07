@@ -2,7 +2,7 @@
 IntervalTimer myTimer;
 
 const int ledPin = LED_BUILTIN;  // the pin with a LED
-const int irpin = 32;  // the pin with a LED
+const int irpin = 19;  // the pin with a LED
 
 void setup() {
   pinMode(ledPin, OUTPUT);
@@ -41,8 +41,8 @@ void loop() {
   // with interrupts off, just quickly make a copy, and then
   // use the copy while allowing the interrupt to keep working
 
-  val = analogRead(A14);
-  Serial.print("analog A14 is: ");
+  val = analogRead(A13);
+  Serial.print("analog A13 is: ");
   Serial.println(val);
   delay(250);
 
