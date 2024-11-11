@@ -1,9 +1,9 @@
-// Create an IntervalTimer object 
+// Create an IntervalTimer object
 #define DEBUG
 IntervalTimer myTimer;
 
 const int ledPin = LED_BUILTIN;  // the pin with a LED
-const int irPin = 19;  // the pin with IR diode
+const int irPin = 19;            // the pin with IR diode
 
 volatile bool toggle = 1;
 char* message;
@@ -14,14 +14,14 @@ volatile int baud = 9600;
 // The interrupt will blink the LED, and keep
 // track of how many times it has blinked.
 int ledState = LOW;
-volatile unsigned long blinkCount = 0; // use volatile for shared variables
+volatile unsigned long blinkCount = 0;  // use volatile for shared variables
 volatile int messageCount = 0;
 
 // functions called by IntervalTimer should be short, run as quickly as
 // possible, and should avoid calling other functions if possible.
 void blinkLED() {
-  if(!halt){
-    if(toggle){
+  if (!halt) {
+    if (toggle) {
       if (ledState == LOW) {
         ledState = HIGH;
         blinkCount = blinkCount + 1;  // increase when LED turns on
@@ -31,23 +31,23 @@ void blinkLED() {
       digitalWrite(ledPin, ledState);
       digitalWrite(irPin, ledState);
       messageCount = 0;
-    }else{
+    } else {
 
-      #ifdef DEBUG
-      if(messageCount%8 == 0){
-        Serial.println(message[int(floor(messageCount/8))]);
+#ifdef DEBUG
+      if (messageCount % 8 == 0) {
+        Serial.println(message[int(floor(messageCount / 8))]);
       }
-      
-      Serial.print(bitRead(message[int(floor(messageCount / 8))],messageCount % 8));
-      #endif
+
+      Serial.print(bitRead(message[int(floor(messageCount / 8))], messageCount % 8));
+#endif
       messageCount++;
-      #ifdef DEBUG
-      if(messageCount%8 == 0){
+#ifdef DEBUG
+      if (messageCount % 8 == 0) {
         Serial.println();
       }
-      #endif 
+#endif
 
-      if(messageCount >= messageLength*8){
+      if (messageCount >= messageLength * 8) {
         messageCount = 0;
       }
     }
@@ -55,7 +55,7 @@ void blinkLED() {
 }
 
 
-void usage(){
+void usage() {
   Serial.println("FTL Transmitter");
   Serial.println("h          - prints this message");
   Serial.println("s          - stop transmitter");
@@ -76,13 +76,13 @@ void setup() {
 
 const byte numChars = 16;
 char receivedChars[numChars];
-int parseInput(){
+int parseInput() {
   int i = 0;
   char incomingByte;
-    
-  while (Serial.available() != 0){
+
+  while (Serial.available() != 0) {
     incomingByte = Serial.read();
-    if (incomingByte != ' '){
+    if (incomingByte != ' ') {
       receivedChars[i] = incomingByte;
       i++;
     }
@@ -91,12 +91,12 @@ int parseInput(){
   return atoi(receivedChars);
 }
 
-void parseMessage(){
+void parseMessage() {
   int i = 0;
   char incomingByte;
   char tempChars[100];
-  
-  while (Serial.available() != 0 && i < 100){
+
+  while (Serial.available() != 0 && i < 100) {
     incomingByte = Serial.read();
     tempChars[i] = incomingByte;
     i++;
@@ -105,79 +105,79 @@ void parseMessage(){
 
   messageLength = i;
   free(message);
-  message = (char*)malloc( sizeof(char) * ( messageLength + 1 ) );
-  while (i >= 0){
+  message = (char*)malloc(sizeof(char) * (messageLength + 1));
+  while (i >= 0) {
     message[i] = tempChars[i];
     i--;
   }
 }
 
-void flushInput(){
-   while(Serial.available() > 0 ) Serial.read();
+void flushInput() {
+  while (Serial.available() > 0) Serial.read();
 }
 
 void loop() {
-    char incomingByte;
-    int new_baud;
-    int i = 0;
-    int j = 0;
+  char incomingByte;
+  int new_baud;
+  int i = 0;
+  int j = 0;
 
-    while (Serial.available() != 0) {
-      if(Serial.available() < 16){;
-        incomingByte = Serial.read();
-        switch (incomingByte) {
-          case 's':  // start or stop transmitter
-            halt = !halt;
-            if(halt){
-              Serial.println("starting...");
-            }else{
-              Serial.println("stopping...");
+  while (Serial.available() != 0) {
+    if (Serial.available() < 16) {
+      ;
+      incomingByte = Serial.read();
+      switch (incomingByte) {
+        case 's':  // start or stop transmitter
+          halt = !halt;
+          if (halt) {
+            Serial.println("starting...");
+          } else {
+            Serial.println("stopping...");
+          }
+          break;
+        case 'b':  // set baud rate
+          new_baud = parseInput();
+          if (new_baud == 0) {
+            Serial.println("ERROR: baud input should be a integer");
+          } else {
+            halt = 0;
+            Serial.print("baud set to ");
+            Serial.println(new_baud);
+            baud = new_baud;
+            halt = 1;
+          }
+          break;
+        case 'm':  // set new message
+          Serial.println("message");
+          parseMessage();
+          Serial.println(message);
+          for (i = 0; i < messageLength; i++) {
+            Serial.println(message[i]);
+            for (j = 0; j < 8; j++) {
+              Serial.println(bitRead(message[i], j));
             }
-            break;
-          case 'b':  // set baud rate
-            new_baud = parseInput();
-            if(new_baud == 0){
-              Serial.println("ERROR: baud input should be a integer");
-            }else{
-              halt = 0;
-              Serial.print("baud set to ");
-              Serial.println(new_baud);
-              baud = new_baud;
-              halt = 1;
-            }
-            break;
-          case 'm':  // set new message
-            Serial.println("message");
-            parseMessage();
-            Serial.println(message);
-            for(i=0;i < messageLength; i++){
-                Serial.println(message[i]);
-              for(j=0; j < 8; j++){
-                Serial.println(bitRead(message[i],j));
-              }
-            }
-            break;
-          case 't': 
-            toggle = !toggle;
-            if(toggle){
-              Serial.println("enable toggling...");
-            }else{
-              Serial.println("disable toggling...");
-            }
-            break;
-          case '\n': 
-            break;
-          case '\r':  
-            break;
-          default:
-            usage();
-            break;
-        }
-        flushInput();
-      }else{
-        flushInput();
-        Serial.println("Input too long");
+          }
+          break;
+        case 't':
+          toggle = !toggle;
+          if (toggle) {
+            Serial.println("enable toggling...");
+          } else {
+            Serial.println("disable toggling...");
+          }
+          break;
+        case '\n':
+          break;
+        case '\r':
+          break;
+        default:
+          usage();
+          break;
       }
+      flushInput();
+    } else {
+      flushInput();
+      Serial.println("Input too long");
+    }
   }
-
 }
