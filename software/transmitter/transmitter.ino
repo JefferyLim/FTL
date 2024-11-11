@@ -32,18 +32,21 @@ void blinkLED() {
       messageCount = 0;
     } else {
 
+    char currentByte = message[int(floor(messageCount / 8))];
+    int currentBit = messageCount % 8;
+
 #ifdef DEBUG
-      if (messageCount % 8 == 0) {
-        Serial.println(message[int(floor(messageCount / 8))]);
+      if (currentBit == 0) {
+        Serial.println();
       }
 
-      Serial.print(bitRead(message[int(floor(messageCount / 8))], messageCount % 8));
+      Serial.print(bitRead(currentByte, currentBit));
 #endif
-      digitalWriteFast(ledPin, bitRead(message[int(floor(messageCount / 8))], messageCount % 8));
-      digitalWriteFast(irPin, bitRead(message[int(floor(messageCount / 8))], messageCount % 8));
+      digitalWriteFast(ledPin, bitRead(currentByte, currentBit));
+      digitalWriteFast(irPin, bitRead(currentByte, currentBit));
       messageCount++;
 #ifdef DEBUG
-      if (messageCount % 8 == 0) {
+      if (currentBit == 0) {
         Serial.println();
       }
 #endif
