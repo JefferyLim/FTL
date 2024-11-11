@@ -103,6 +103,9 @@ void parseMessage() {
 
   while (Serial.available() != 0 && i < 100) {
     incomingByte = Serial.read();
+    if(incomingByte == '\n'){
+      break;
+    }
     tempChars[i] = incomingByte;
     i++;
   }
@@ -131,6 +134,7 @@ void loop() {
       switch (incomingByte) {
         case 's':  // start or stop transmitter
           halt = !halt;
+          Serial.println();
           if (halt) {
             Serial.println("stopping...");
           } else {
@@ -170,6 +174,7 @@ void loop() {
           break;
         case 't':
           toggle = !toggle;
+          Serial.println();
           if (toggle) {
             Serial.println("enable LED toggling...");
           } else {
