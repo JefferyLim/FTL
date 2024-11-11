@@ -1,4 +1,5 @@
 // Create an IntervalTimer object 
+#define DEBUG
 IntervalTimer myTimer;
 
 const int ledPin = LED_BUILTIN;  // the pin with a LED
@@ -13,23 +14,50 @@ void setup() {
   usage();
 }
 
+volatile bool toggle = 1;
+char* message;
+int messageLength;
+
 // The interrupt will blink the LED, and keep
 // track of how many times it has blinked.
 int ledState = LOW;
 volatile unsigned long blinkCount = 0; // use volatile for shared variables
-
+volatile int messageCount = 0;
 // functions called by IntervalTimer should be short, run as quickly as
 // possible, and should avoid calling other functions if possible.
 void blinkLED() {
-  if (ledState == LOW) {
-    ledState = HIGH;
-    blinkCount = blinkCount + 1;  // increase when LED turns on
-  } else {
-    ledState = LOW;
+  if(toggle){
+    if (ledState == LOW) {
+      ledState = HIGH;
+      blinkCount = blinkCount + 1;  // increase when LED turns on
+    } else {
+      ledState = LOW;
+    }
+    digitalWrite(ledPin, ledState);
+    digitalWrite(irPin, ledState);
+    messageCount = 0;
+  }else{
+
+    #ifdef DEBUG
+    if(messageCount%8 == 0){
+      Serial.println(message[int(floor(messageCount/8))]);
+    }
+    
+    Serial.print(bitRead(message[int(floor(messageCount / 8))],messageCount % 8));
+    #endif
+    messageCount++;
+    #ifdef DEBUG
+    if(messageCount%8 == 0){
+      Serial.println();
+    }
+    #endif 
+
+    if(messageCount >= messageLength*8){
+      messageCount = 0;
+    }
   }
-  digitalWrite(ledPin, ledState);
-  digitalWrite(irPin, ledState);
 }
+
 
 
 void usage(){
@@ -38,6 +66,7 @@ void usage(){
   Serial.println("s          - stop transmitter");
   Serial.println("b [number] - set baud rate ");
   Serial.println("m [string] - set transmit message ");
+  Serial.println("t          - set toggle mode (blink) ");
 }
 
 const byte numChars = 16;
@@ -57,10 +86,6 @@ int parseInput(){
   Serial.println(receivedChars);
   return atoi(receivedChars);
 }
-
-
-char* message;
-int messageLength;
 void parseMessage(){
   int i = 0;
   char incomingByte;
@@ -128,6 +153,14 @@ void loop() {
               for(j=0; j < 8; j++){
                 Serial.println(bitRead(message[i],j));
               }
+            }
+            break;
+          case 't': 
+            toggle = !toggle;
+            if(toggle){
+              Serial.println("enable toggling...");
+            }else{
+              Serial.println("disable toggling...");
             }
             break;
           case '\n': 
