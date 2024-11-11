@@ -27,8 +27,8 @@ void blinkLED() {
       } else {
         ledState = LOW;
       }
-      digitalWrite(ledPin, ledState);
-      digitalWrite(irPin, ledState);
+      digitalWriteFast(ledPin, ledState);
+      digitalWriteFast(irPin, ledState);
       messageCount = 0;
     } else {
 
@@ -67,6 +67,8 @@ void usage() {
 void setup() {
   pinMode(ledPin, OUTPUT);
   pinMode(irPin, OUTPUT);
+  CORE_PIN13_PADCONFIG |= 0xF9;
+  CORE_PIN19_PADCONFIG |= 0xF9;
   Serial.begin(9600);
   myTimer.begin(blinkLED, 1500000);  // blinkLED to run every 0.15 seconds
   usage();
