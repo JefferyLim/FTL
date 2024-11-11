@@ -5,59 +5,54 @@ IntervalTimer myTimer;
 const int ledPin = LED_BUILTIN;  // the pin with a LED
 const int irPin = 19;  // the pin with IR diode
 
-void setup() {
-  pinMode(ledPin, OUTPUT);
-  pinMode(irPin, OUTPUT);
-  Serial.begin(9600);
-  myTimer.begin(blinkLED, 1500000);  // blinkLED to run every 0.15 seconds
-
-  usage();
-}
-
 volatile bool toggle = 1;
 char* message;
 int messageLength;
 
+volatile bool halt = 0;
+volatile int baud = 9600;
 // The interrupt will blink the LED, and keep
 // track of how many times it has blinked.
 int ledState = LOW;
 volatile unsigned long blinkCount = 0; // use volatile for shared variables
 volatile int messageCount = 0;
+
 // functions called by IntervalTimer should be short, run as quickly as
 // possible, and should avoid calling other functions if possible.
 void blinkLED() {
-  if(toggle){
-    if (ledState == LOW) {
-      ledState = HIGH;
-      blinkCount = blinkCount + 1;  // increase when LED turns on
-    } else {
-      ledState = LOW;
-    }
-    digitalWrite(ledPin, ledState);
-    digitalWrite(irPin, ledState);
-    messageCount = 0;
-  }else{
-
-    #ifdef DEBUG
-    if(messageCount%8 == 0){
-      Serial.println(message[int(floor(messageCount/8))]);
-    }
-    
-    Serial.print(bitRead(message[int(floor(messageCount / 8))],messageCount % 8));
-    #endif
-    messageCount++;
-    #ifdef DEBUG
-    if(messageCount%8 == 0){
-      Serial.println();
-    }
-    #endif 
-
-    if(messageCount >= messageLength*8){
+  if(!halt){
+    if(toggle){
+      if (ledState == LOW) {
+        ledState = HIGH;
+        blinkCount = blinkCount + 1;  // increase when LED turns on
+      } else {
+        ledState = LOW;
+      }
+      digitalWrite(ledPin, ledState);
+      digitalWrite(irPin, ledState);
       messageCount = 0;
+    }else{
+
+      #ifdef DEBUG
+      if(messageCount%8 == 0){
+        Serial.println(message[int(floor(messageCount/8))]);
+      }
+      
+      Serial.print(bitRead(message[int(floor(messageCount / 8))],messageCount % 8));
+      #endif
+      messageCount++;
+      #ifdef DEBUG
+      if(messageCount%8 == 0){
+        Serial.println();
+      }
+      #endif 
+
+      if(messageCount >= messageLength*8){
+        messageCount = 0;
+      }
     }
   }
 }
-
 
 
 void usage(){
@@ -67,6 +62,16 @@ void usage(){
   Serial.println("b [number] - set baud rate ");
   Serial.println("m [string] - set transmit message ");
   Serial.println("t          - set toggle mode (blink) ");
+}
+
+
+void setup() {
+  pinMode(ledPin, OUTPUT);
+  pinMode(irPin, OUTPUT);
+  Serial.begin(9600);
+  myTimer.begin(blinkLED, 1500000);  // blinkLED to run every 0.15 seconds
+
+  usage();
 }
 
 const byte numChars = 16;
@@ -83,9 +88,9 @@ int parseInput(){
     }
   }
   receivedChars[i] = '\0';
-  Serial.println(receivedChars);
   return atoi(receivedChars);
 }
+
 void parseMessage(){
   int i = 0;
   char incomingByte;
@@ -111,8 +116,6 @@ void flushInput(){
    while(Serial.available() > 0 ) Serial.read();
 }
 
-volatile bool halt = 0;
-volatile int baud = 9600;
 void loop() {
     char incomingByte;
     int new_baud;
@@ -120,8 +123,7 @@ void loop() {
     int j = 0;
 
     while (Serial.available() != 0) {
-      if(Serial.available() < 16){
-        Serial.println(Serial.available());
+      if(Serial.available() < 16){;
         incomingByte = Serial.read();
         switch (incomingByte) {
           case 's':  // start or stop transmitter
