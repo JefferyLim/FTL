@@ -135,11 +135,12 @@ void loop() {
           if (new_baud == 0) {
             Serial.println("ERROR: baud input should be a integer");
           } else {
-            halt = 0;
+            halt = 1;
             Serial.print("baud set to ");
             Serial.println(new_baud);
             baud = new_baud;
-            halt = 1;
+            myTimer.update(round(1/baud * 1000000));
+            halt = 0;
           }
           break;
         case 'm':  // set new message
