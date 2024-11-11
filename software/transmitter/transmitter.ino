@@ -39,6 +39,8 @@ void blinkLED() {
 
       Serial.print(bitRead(message[int(floor(messageCount / 8))], messageCount % 8));
 #endif
+      digitalWriteFast(ledPin, bitRead(message[int(floor(messageCount / 8))], messageCount % 8));
+      digitalWriteFast(irPin, bitRead(message[int(floor(messageCount / 8))], messageCount % 8));
       messageCount++;
 #ifdef DEBUG
       if (messageCount % 8 == 0) {
@@ -127,9 +129,9 @@ void loop() {
         case 's':  // start or stop transmitter
           halt = !halt;
           if (halt) {
-            Serial.println("starting...");
-          } else {
             Serial.println("stopping...");
+          } else {
+            Serial.println("starting...");
           }
           break;
         case 'b':  // set baud rate
@@ -139,9 +141,12 @@ void loop() {
           } else {
             halt = 1;
             Serial.print("baud set to ");
-            Serial.println(new_baud);
+            Serial.println(new_baud*4);
+            Serial.println(int(round(1.0L/((double)new_baud) * 1000000.0L)));
             baud = new_baud;
-            myTimer.update(round(1/baud * 1000000));
+            myTimer.end();
+            myTimer.begin(blinkLED, int(round(0.5L/((double)new_baud) * 1000000.0L)));
+            //myTimer.update(round(1/baud * 1000000));
             halt = 0;
           }
           break;
