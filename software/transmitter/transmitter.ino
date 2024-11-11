@@ -20,6 +20,7 @@ volatile int messageCount = 0;
 // possible, and should avoid calling other functions if possible.
 void blinkLED() {
   if (!halt) {
+    // toggle mode: blink LED
     if (toggle) {
       if (ledState == LOW) {
         ledState = HIGH;
@@ -31,9 +32,10 @@ void blinkLED() {
       digitalWriteFast(irPin, ledState);
       messageCount = 0;
     } else {
+      // transmitter mode: transmit message
 
-    char currentByte = message[int(floor(messageCount / 8))];
-    int currentBit = messageCount % 8;
+      char currentByte = message[int(floor(messageCount / 8))];
+      int currentBit = messageCount % 8;
 
 #ifdef DEBUG
       if (currentBit == 0) {
@@ -103,7 +105,7 @@ void parseMessage() {
 
   while (Serial.available() != 0 && i < 100) {
     incomingByte = Serial.read();
-    if(incomingByte == '\n'){
+    if (incomingByte == '\n') {
       break;
     }
     tempChars[i] = incomingByte;
@@ -130,65 +132,65 @@ void loop() {
   int i;
 
   while (Serial.available() != 0) {
-      incomingByte = Serial.read();
-      switch (incomingByte) {
-        case 's':  // start or stop transmitter
-          halt = !halt;
-          Serial.println();
-          if (halt) {
-            Serial.println("stopping...");
-          } else {
-            Serial.println("starting...");
+    incomingByte = Serial.read();
+    switch (incomingByte) {
+      case 's':  // start or stop transmitter
+        halt = !halt;
+        Serial.println();
+        if (halt) {
+          Serial.println("stopping...");
+        } else {
+          Serial.println("starting...");
+        }
+        break;
+      case 'b':  // set baud rate
+        new_baud = parseInput();
+        if (new_baud == 0) {
+          Serial.println("ERROR: baud input should be a integer");
+        } else {
+          halt = 1;
+          Serial.print("baud set to ");
+          Serial.println(new_baud * 4);
+          Serial.println(int(round(1.0L / ((double)new_baud) * 1000000.0L)));
+          baud = new_baud;
+          myTimer.end();
+          myTimer.begin(blinkLED, int(round(0.5L / ((double)new_baud) * 1000000.0L)));
+          //myTimer.update(round(1/baud * 1000000));
+          halt = 0;
+        }
+        break;
+      case 'm':  // set new message
+        if (Serial.read() != ' ') {
+          Serial.println("ERROR: improper format. Expected m [string]");
+          break;
+        } else {
+          parseMessage();
+          Serial.print("message set: ");
+          Serial.print(message);
+          Serial.print(" (Binary: ");
+          for (i = 0; i < messageLength * 8; i++) {
+            Serial.print(bitRead(message[int(floor(i / 8))], i % 8));
           }
-          break;
-        case 'b':  // set baud rate
-          new_baud = parseInput();
-          if (new_baud == 0) {
-            Serial.println("ERROR: baud input should be a integer");
-          } else {
-            halt = 1;
-            Serial.print("baud set to ");
-            Serial.println(new_baud*4);
-            Serial.println(int(round(1.0L/((double)new_baud) * 1000000.0L)));
-            baud = new_baud;
-            myTimer.end();
-            myTimer.begin(blinkLED, int(round(0.5L/((double)new_baud) * 1000000.0L)));
-            //myTimer.update(round(1/baud * 1000000));
-            halt = 0;
-          }
-          break;
-        case 'm':  // set new message
-          if(Serial.read() != ' '){
-            Serial.println("ERROR: improper format. Expected m [string]");
-            break;
-          }else{
-            parseMessage();
-            Serial.print("message set: ");
-            Serial.print(message);
-            Serial.print(" (Binary: ");
-            for(i = 0; i < messageLength * 8; i++){
-              Serial.print(bitRead(message[int(floor(i / 8))], i % 8));
-            }
-            Serial.println(")");
-          }
-          break;
-        case 't':
-          toggle = !toggle;
-          Serial.println();
-          if (toggle) {
-            Serial.println("enable LED toggling...");
-          } else {
-            Serial.println("disable LED toggling...");
-          }
-          break;
-        case '\n':
-          break;
-        case '\r':
-          break;
-        default:
-          usage();
-          break;
-      }
+          Serial.println(")");
+        }
+        break;
+      case 't':
+        toggle = !toggle;
+        Serial.println();
+        if (toggle) {
+          Serial.println("enable LED toggling...");
+        } else {
+          Serial.println("disable LED toggling...");
+        }
+        break;
+      case '\n':
+        break;
+      case '\r':
+        break;
+      default:
+        usage();
+        break;
+    }
     flushInput();
   }
 }
