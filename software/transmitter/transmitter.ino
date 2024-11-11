@@ -8,7 +8,7 @@ const int irPin = 19;            // the pin with IR diode
 
 volatile bool toggle = 1;
 char* message;
-int messageLength;
+int messageLength = -1;
 
 volatile bool halt = 0;
 volatile int baud = 9600;
@@ -117,12 +117,9 @@ void flushInput() {
 void loop() {
   char incomingByte;
   int new_baud;
-  int i = 0;
-  int j = 0;
+  int i;
 
   while (Serial.available() != 0) {
-    if (Serial.available() < 16) {
-      ;
       incomingByte = Serial.read();
       switch (incomingByte) {
         case 's':  // start or stop transmitter
@@ -146,22 +143,26 @@ void loop() {
           }
           break;
         case 'm':  // set new message
-          Serial.println("message");
-          parseMessage();
-          Serial.println(message);
-          for (i = 0; i < messageLength; i++) {
-            Serial.println(message[i]);
-            for (j = 0; j < 8; j++) {
-              Serial.println(bitRead(message[i], j));
+          if(Serial.read() != ' '){
+            Serial.println("ERROR: improper format. Expected m [string]");
+            break;
+          }else{
+            parseMessage();
+            Serial.print("message set: ");
+            Serial.print(message);
+            Serial.print(" (Binary: ");
+            for(i = 0; i < messageLength * 8; i++){
+              Serial.print(bitRead(message[int(floor(i / 8))], i % 8));
             }
+            Serial.println(")");
           }
           break;
         case 't':
           toggle = !toggle;
           if (toggle) {
-            Serial.println("enable toggling...");
+            Serial.println("enable LED toggling...");
           } else {
-            Serial.println("disable toggling...");
+            Serial.println("disable LED toggling...");
           }
           break;
         case '\n':
@@ -172,10 +173,6 @@ void loop() {
           usage();
           break;
       }
-      flushInput();
-    } else {
-      flushInput();
-      Serial.println("Input too long");
-    }
+    flushInput();
   }
 }
