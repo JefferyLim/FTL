@@ -59,7 +59,7 @@ void blinkLED() {
   }
 }
 
-
+// Usage print helper function
 void usage() {
   Serial.println();
   Serial.println("FTL Transmitter");
@@ -74,34 +74,39 @@ void usage() {
 void setup() {
   pinMode(ledPin, OUTPUT);
   pinMode(irPin, OUTPUT);
+  // Enables fastest possible mode on pins 
+  // https://forum.pjrc.com/index.php?threads/high-speed-digital-i-o-in-teensy-4-1.75179/
   CORE_PIN13_PADCONFIG |= 0xF9;
   CORE_PIN19_PADCONFIG |= 0xF9;
   Serial.begin(9600);
-  myTimer.begin(blinkLED, 1500000);  // blinkLED to run every 0.15 seconds
+  myTimer.begin(blinkLED, 1000000);  // blinkLED to run every 1 seconds
   usage();
 }
 
-const byte numChars = 16;
-char receivedChars[numChars];
+// Parse user input for baud (really any integer)
 int parseInput() {
   int i = 0;
   char incomingByte;
+  const byte numChars = 16; // arbitrary size...
+  char receivedChars[numChars];
 
   while (Serial.available() != 0) {
     incomingByte = Serial.read();
+    // ignore spaces...
     if (incomingByte != ' ') {
       receivedChars[i] = incomingByte;
       i++;
     }
   }
-  receivedChars[i] = '\0';
-  return atoi(receivedChars);
+  receivedChars[i] = '\0'; // null terminate 
+  return atoi(receivedChars); //return integer
 }
 
+// Parse a message for the transmitter
 void parseMessage() {
   int i = 0;
   char incomingByte;
-  char tempChars[100];
+  char tempChars[100]; // support up to 100 bytes (arbitrary)
 
   while (Serial.available() != 0 && i < 100) {
     incomingByte = Serial.read();
@@ -114,6 +119,7 @@ void parseMessage() {
   tempChars[i] = '\0';
 
   messageLength = i;
+  // Free message before allocating
   free(message);
   message = (char*)malloc(sizeof(char) * (messageLength + 1));
   while (i >= 0) {
