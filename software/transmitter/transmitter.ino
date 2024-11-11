@@ -1,5 +1,6 @@
-// Create an IntervalTimer object
 #define DEBUG
+
+// Create an IntervalTimer object
 IntervalTimer myTimer;
 
 const int ledPin = LED_BUILTIN;  // the pin with a LED
@@ -11,8 +12,6 @@ int messageLength;
 
 volatile bool halt = 0;
 volatile int baud = 9600;
-// The interrupt will blink the LED, and keep
-// track of how many times it has blinked.
 int ledState = LOW;
 volatile unsigned long blinkCount = 0;  // use volatile for shared variables
 volatile int messageCount = 0;
@@ -46,7 +45,6 @@ void blinkLED() {
         Serial.println();
       }
 #endif
-
       if (messageCount >= messageLength * 8) {
         messageCount = 0;
       }
@@ -56,6 +54,7 @@ void blinkLED() {
 
 
 void usage() {
+  Serial.println();
   Serial.println("FTL Transmitter");
   Serial.println("h          - prints this message");
   Serial.println("s          - stop transmitter");
@@ -70,7 +69,6 @@ void setup() {
   pinMode(irPin, OUTPUT);
   Serial.begin(9600);
   myTimer.begin(blinkLED, 1500000);  // blinkLED to run every 0.15 seconds
-
   usage();
 }
 
