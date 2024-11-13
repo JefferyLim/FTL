@@ -50,9 +50,24 @@ int last_x_samples;
 
 
 void setup() {
+  pinMode(left_pin, INPUT);
+  pinMode(mid_pin, INPUT);
+  pinMode(right_pin, INPUT);
+
   Serial.begin(9600);
 
-  pinMode
+ ///// ADC0 ////
+  adc->adc0->setAveraging(16); // set number of averages
+  adc->adc0->setResolution(12); // set bits of resolution
+  adc->adc0->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED); // change the conversion speed
+  adc->adc0->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED); // change the sampling speed
+
+///// ADC1 ////
+  adc->adc1->setAveraging(16); // set number of averages
+  adc->adc1->setResolution(12); // set bits of resolution
+  adc->adc1->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED); // change the conversion speed
+  adc->adc1->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED); // change the sampling speed
+
 
   sensor_readTimer.priority(0); //Set sensor priority higher
   posistionTimer.priority(1);
