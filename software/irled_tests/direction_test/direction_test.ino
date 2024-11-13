@@ -1,10 +1,21 @@
 //Threshold values
+#include <ADC.h>
+#include <IntervalTimer.h>
+
 #define sensor_thresh 1000
 #define sensor_dif_thresh 100
 
+#define baud_rate 1000
+
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
-IntervalTimer process_resultsTimer;
+IntervalTimer posistionTimer;
+
+const int left_pin = ?;
+const int mid_pin = ?;
+const int right_pin = ?;
+
+ADC *adc = new ADC(); 
 
 //States
 enum tracking_state{
@@ -16,6 +27,13 @@ enum posistion_state{
   LEFT, MID_LEFT, MID, MID_RIGHT, RIGHT,
 };
 
+enum message_state{
+  SYNCH, 
+};
+
+
+volatile bool just_read = false;
+volatile int counter = 0;
 //Sensor variables
 int left;
 int mid;
@@ -28,22 +46,31 @@ int mid_right_dif;
 tracking_state track_state = SCANNING;
 posistion_state pos_state;
 
+int last_x_samples;
+
 
 void setup() {
   Serial.begin(9600);
+
+  pinMode
+
   sensor_readTimer.priority(0); //Set sensor priority higher
-  process_resultsTimer.priority(1);
-  sensor_readTimer.begin(read_sensors, 10000); //Read senors every 0.01 seconds
-  process_resultsTimer.begin(process_results,100000); //Process every 0.1 seconds
+  posistionTimer.priority(1);
+  
+  double sensor_period = 1000000/baud_rate;
+  sensor_readTimer.begin(read_sensors,(int)sensor_period); //Read senors every 0.01 seconds
+  //posistionTimer.begin(find_posistion,100000); //Process every 0.1 seconds
 }
 
 void read_sensors() { //Read analog sensor input
   left = analogRead(A10);
   mid = analogRead(A11);
   right = analogRead(A12);
+  counter++;
+  just_read = true;
 }
 
-void process_results(){ //Determine posistion of transmitter
+void find_posistion(){ //Determine posistion of transmitter
   //Difference calculations
   edge_dif = left - right;
   left_mid_dif = left - mid;
@@ -74,6 +101,31 @@ void process_results(){ //Determine posistion of transmitter
     }
   }
 
+  //Print states
+  // if(track_state == LOCKED){
+  //   switch (pos_state) {
+  //     case LEFT:
+  //       Serial.println("LEFT");
+  //       break;
+  //     case MID_LEFT:
+  //       Serial.println("MID_LEFT");
+  //       break;
+  //     case MID:
+  //       Serial.println("MID");
+  //       break;
+  //     case MID_RIGHT:
+  //       Serial.println("MID_RIGHT");
+  //       break;
+  //     case RIGHT:
+  //       Serial.println("RIGHT");
+  //       break;
+  //     default:
+  //       Serial.println("Unknown state");
+  //       break;
+  //   }
+  // }else{
+  //   Serial.println("Scanning");
+  // }
   // Serial.print(left);
   // Serial.print(" | ");
   // Serial.print(mid);
@@ -93,31 +145,58 @@ void process_results(){ //Determine posistion of transmitter
   // Serial.println(mid_right_dif);
 }
 
+bool message_buf[1024];
+int i = 0;
+int last_counter = 0;
+
 void loop() {
-  //Print states
-  if(track_state == LOCKED){
-    switch (pos_state) {
-      case LEFT:
-        Serial.println("LEFT");
-        break;
-      case MID_LEFT:
-        Serial.println("MID_LEFT");
-        break;
-      case MID:
-        Serial.println("MID");
-        break;
-      case MID_RIGHT:
-        Serial.println("MID_RIGHT");
-        break;
-      case RIGHT:
-        Serial.println("RIGHT");
-        break;
-      default:
-        Serial.println("Unknown state");
-        break;
+  bool current_bit = false;
+  if(just_read){
+    //Serial.println(counter);
+    Serial.print(counter);
+    Serial.print(" | ");
+    Serial.println(last_counter);
+    if(last_counter != counter - 1){
+      Serial.println("ERROR");
     }
-  }else{
-    Serial.println("Scanning");
+    last_counter = counter;
+
+    if(left + right + mid <= 3000){
+      current_bit = true;
+    }else{
+      current_bit = false;
+    }
+    //Serial.println(current_bit);
+    message_buf[i] = current_bit;
+    i++;
+    just_read = false;
+  }
+
+  if(i == 1024){
+    //char ascii_string[128];
+    //int ascii_index = 0;
+    for(int j = 0; j < 1024; j++){
+      Serial.print(message_buf[j]);
+    }
+    // for(int j = 7; j < 1024; j = j + 8){
+    //   //char temp_byte;
+    //   int temp_sum = 0;
+    //   int multiplier = 0;
+    //   for(int k = j; k < j + 7; k++){
+    //     temp_sum += message_buf[k] * (1 << multiplier++);
+    //   }
+    //   ascii_string[ascii_index] = (char)temp_sum;
+    //   ascii_index++;
+    // }
+
+    // for(int f = 0; f < 128; f++){
+    //     if(ascii_string[f] == 0){
+    //       Serial.print("NULL");
+    //     }else{
+    //       Serial.print(ascii_string[f]);
+    //     }
+    // }
+    delay(100000);
   }
 
   //edge_difference = val0 - val2;
