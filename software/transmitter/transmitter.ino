@@ -12,9 +12,12 @@ int messageLength = -1;
 
 volatile bool halt = 0;
 volatile int baud = 9600;
-int ledState = LOW;
+int ledState = HIGH;
 volatile unsigned long blinkCount = 0;  // use volatile for shared variables
+volatile int bitCount = 0;
 volatile int messageCount = 0;
+bool start_message = 1;
+bool end_message = 0;
 
 // functions called by IntervalTimer should be short, run as quickly as
 // possible, and should avoid calling other functions if possible.
@@ -24,38 +27,71 @@ void blinkLED() {
     if (toggle) {
       if (ledState == LOW) {
         ledState = HIGH;
-        blinkCount = blinkCount + 1;  // increase when LED turns on
       } else {
         ledState = LOW;
       }
       digitalWriteFast(ledPin, ledState);
       digitalWriteFast(irPin, ledState);
       messageCount = 0;
+      start_message = 1;
+      end_message = 0;
+      bitCount = 0;
     } else {
       // transmitter mode: transmit message
 
-      char currentByte = message[int(floor(messageCount / 8))];
-      int currentBit = messageCount % 8;
+      if(start_message == 1){
+        bitCount++;
+        if(bitCount == 8){
+          start_message = 0;
+          end_message = 0;
+          bitCount = 0;
+          digitalWriteFast(ledPin, LOW);
+          digitalWriteFast(irPin, LOW);
+        }else{
+          digitalWriteFast(ledPin, HIGH);
+          digitalWriteFast(irPin, HIGH);
+        }
+      }else if(end_message == 1){
+        bitCount++;
+        if(bitCount == 8){
+          start_message = 1;
+          bitCount = 0;
+          end_message = 0;
+        }
+        digitalWriteFast(ledPin, HIGH);
+        digitalWriteFast(irPin, HIGH);
+      }else{
+        char currentByte = message[int(floor(messageCount / 8))];
+        int currentBit = messageCount % 8;
 
-#ifdef DEBUG
-      if (currentBit == 0) {
-        Serial.println();
-      }
+  #ifdef DEBUG
+        if (currentBit == 0) {
+          Serial.println(message[int(floor(messageCount / 8))]);
+        }
 
-      Serial.print(bitRead(currentByte, currentBit));
-#endif
-      digitalWriteFast(ledPin, bitRead(currentByte, currentBit));
-      digitalWriteFast(irPin, bitRead(currentByte, currentBit));
-      messageCount++;
-#ifdef DEBUG
-      if (currentBit == 0) {
-        Serial.println();
-      }
-#endif
-      if (messageCount >= messageLength * 8) {
-        messageCount = 0;
+        Serial.print(bitRead(currentByte, currentBit));
+  #endif
+        digitalWriteFast(ledPin, bitRead(currentByte, currentBit));
+        digitalWriteFast(irPin, bitRead(currentByte, currentBit));
+        messageCount++;
+  #ifdef DEBUG
+        if (messageCount % 8 == 0) {
+          Serial.println();
+        }
+  #endif
+        if (messageCount >= messageLength * 8) {
+          messageCount = 0;
+          start_message = 0;
+          end_message = 1;
+        }else if(messageCount % 8 == 0){
+          start_message = 0;
+          end_message = 1;
+        }
       }
     }
+  }else{
+    digitalWriteFast(ledPin, HIGH);
+    digitalWriteFast(irPin, HIGH);
   }
 }
 
@@ -64,7 +100,7 @@ void usage() {
   Serial.println();
   Serial.println("FTL Transmitter");
   Serial.println("h          - prints this message");
-  Serial.println("s          - stop transmitter");
+  Serial.println("s          - start/stop transmitter");
   Serial.println("b [number] - set baud rate ");
   Serial.println("m [string] - set transmit message ");
   Serial.println("t          - set toggle mode (blink) ");
@@ -156,13 +192,12 @@ void loop() {
         } else {
           halt = 1;
           Serial.print("baud set to ");
-          Serial.println(new_baud * 4);
+          Serial.println(new_baud);
           Serial.println(int(round(1.0L / ((double)new_baud) * 1000000.0L)));
           baud = new_baud;
           myTimer.end();
           myTimer.begin(blinkLED, int(round(0.5L / ((double)new_baud) * 1000000.0L)));
           //myTimer.update(round(1/baud * 1000000));
-          halt = 0;
         }
         break;
       case 'm':  // set new message
