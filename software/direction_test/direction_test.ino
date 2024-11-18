@@ -191,6 +191,8 @@ void loop() {
     left = adcValues.left;
     right = adcValues.right;
     mid = adcValues.mid;
+    Serial.println(mid);
+    
 
     if(left + right + mid <= 3000){
       current_bit = true;
