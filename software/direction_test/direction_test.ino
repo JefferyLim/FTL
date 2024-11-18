@@ -1,19 +1,21 @@
 //Threshold values
 #include <ADC.h>
+#include <RingBuf.h>
 #include <IntervalTimer.h>
 
 #define sensor_thresh 1000
 #define sensor_dif_thresh 100
 
 #define baud_rate 1000
+double sensor_period = 1000000/baud_rate;
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
 IntervalTimer posistionTimer;
 
-const int left_pin = ?;
-const int mid_pin = ?;
-const int right_pin = ?;
+const int left_pin = A0;
+const int mid_pin = A1;
+const int right_pin = A2;
 
 ADC *adc = new ADC(); 
 
@@ -54,35 +56,46 @@ void setup() {
   pinMode(mid_pin, INPUT);
   pinMode(right_pin, INPUT);
 
-  Serial.begin(9600);
+  Serial.begin(115200);
 
- ///// ADC0 ////
-  adc->adc0->setAveraging(16); // set number of averages
-  adc->adc0->setResolution(12); // set bits of resolution
+  ///// ADC0 ////
+  adc->adc0->setAveraging(0); // set number of averages
+  adc->adc0->setResolution(10); // set bits of resolution
   adc->adc0->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED); // change the conversion speed
   adc->adc0->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED); // change the sampling speed
 
-///// ADC1 ////
-  adc->adc1->setAveraging(16); // set number of averages
-  adc->adc1->setResolution(12); // set bits of resolution
+  ///// ADC1 ////
+  adc->adc1->setAveraging(0); // set number of averages
+  adc->adc1->setResolution(10); // set bits of resolution
   adc->adc1->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED); // change the conversion speed
   adc->adc1->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED); // change the sampling speed
 
 
-  sensor_readTimer.priority(0); //Set sensor priority higher
+  sensor_readTimer.priority(0); //Set sens  or priority higher
   posistionTimer.priority(1);
   
-  double sensor_period = 1000000/baud_rate;
   sensor_readTimer.begin(read_sensors,(int)sensor_period); //Read senors every 0.01 seconds
   //posistionTimer.begin(find_posistion,100000); //Process every 0.1 seconds
 }
 
+struct photodiode_read{
+  int left;
+  int mid;
+  int right;
+};
+
+RingBuf<photodiode_read, 500> myRingBuffer;
+struct photodiode_read dataset;
+
 void read_sensors() { //Read analog sensor input
-  left = analogRead(A10);
-  mid = analogRead(A11);
-  right = analogRead(A12);
+  dataset.left = adc->adc0->analogRead(left_pin);
+  dataset.mid = adc->adc1->analogRead(mid_pin);
+  dataset.right = adc->adc0->analogRead(right_pin);
+  if(!myRingBuffer.push(dataset)){
+    Serial.println("ERROR: Can't push to buffer");
+  }
+
   counter++;
-  just_read = true;
 }
 
 void find_posistion(){ //Determine posistion of transmitter
@@ -166,13 +179,15 @@ int last_counter = 0;
 
 void loop() {
   bool current_bit = false;
-  if(just_read){
-    //Serial.println(counter);
-    Serial.print(counter);
-    Serial.print(" | ");
-    Serial.println(last_counter);
+  struct photodiode_read readdata;
+
+  if(myRingBuffer.pop(readdata)){
+    left = readdata.left;
+    right = readdata.right;
+    mid = readdata.mid;
+
     if(last_counter != counter - 1){
-      Serial.println("ERROR");
+      //Serial.println("ERROR");
     }
     last_counter = counter;
 
@@ -188,6 +203,8 @@ void loop() {
   }
 
   if(i == 1024){
+    sensor_readTimer.end();
+    myRingBuffer.clear();
     //char ascii_string[128];
     //int ascii_index = 0;
     for(int j = 0; j < 1024; j++){
@@ -211,7 +228,9 @@ void loop() {
     //       Serial.print(ascii_string[f]);
     //     }
     // }
-    delay(100000);
+    Serial.println();
+    delay(10000);
+    sensor_readTimer.begin(read_sensors,(int)sensor_period);
   }
 
   //edge_difference = val0 - val2;
