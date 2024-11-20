@@ -12,7 +12,7 @@ int messageLength = -1;
 
 volatile bool halt = 0;
 volatile int baud = 9600;
-int ledState = HIGH;
+int ledState = LOW;
 volatile unsigned long blinkCount = 0;  // use volatile for shared variables
 volatile int bitCount = 0;
 volatile int messageCount = 0;
@@ -25,10 +25,10 @@ void blinkLED() {
   if (!halt) {
     // toggle mode: blink LED
     if (toggle) {
-      if (ledState == LOW) {
-        ledState = HIGH;
-      } else {
+      if (ledState == HIGH) {
         ledState = LOW;
+      } else {
+        ledState = HIGH;
       }
       digitalWriteFast(ledPin, ledState);
       digitalWriteFast(irPin, ledState);
@@ -41,15 +41,16 @@ void blinkLED() {
 
       if(start_message == 1){
         bitCount++;
+        // Send a bunch of "1" to receiver
         if(bitCount == 8){
           start_message = 0;
           end_message = 0;
           bitCount = 0;
-          digitalWriteFast(ledPin, LOW);
-          digitalWriteFast(irPin, LOW);
-        }else{
           digitalWriteFast(ledPin, HIGH);
           digitalWriteFast(irPin, HIGH);
+        }else{
+          digitalWriteFast(ledPin, LOW);
+          digitalWriteFast(irPin, LOW);
         }
       }else if(end_message == 1){
         bitCount++;
@@ -58,8 +59,8 @@ void blinkLED() {
           bitCount = 0;
           end_message = 0;
         }
-        digitalWriteFast(ledPin, HIGH);
-        digitalWriteFast(irPin, HIGH);
+        digitalWriteFast(ledPin, LOW);
+        digitalWriteFast(irPin, LOW);
       }else{
         char currentByte = message[int(floor(messageCount / 8))];
         int currentBit = messageCount % 8;
@@ -71,8 +72,8 @@ void blinkLED() {
 
         Serial.print(bitRead(currentByte, currentBit));
   #endif
-        digitalWriteFast(ledPin, bitRead(currentByte, currentBit));
-        digitalWriteFast(irPin, bitRead(currentByte, currentBit));
+        digitalWriteFast(ledPin, !bitRead(currentByte, currentBit));
+        digitalWriteFast(irPin, !bitRead(currentByte, currentBit));
         messageCount++;
   #ifdef DEBUG
         if (messageCount % 8 == 0) {
@@ -90,8 +91,8 @@ void blinkLED() {
       }
     }
   }else{
-    digitalWriteFast(ledPin, HIGH);
-    digitalWriteFast(irPin, HIGH);
+    digitalWriteFast(ledPin, LOW);
+    digitalWriteFast(irPin, LOW);
   }
 }
 
