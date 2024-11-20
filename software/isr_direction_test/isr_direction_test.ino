@@ -7,11 +7,11 @@
 #define SENSOR_DIF_THRESH 100
 #define SENSOR_HIGH_THRESH 3000 //1023 max per person
 
-#define SAMPLING_FREQ 100 // Hz
+#define SAMPLING_FREQ 1000 // Hz
 // Convert Sampling Frequency (Hz) to period (us)
 double sampling_period = 1000000/SAMPLING_FREQ; // us
 
-#define PRINT_VALUE 0
+//#define PRINT_VALUE 
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
@@ -33,8 +33,15 @@ enum posistion_state{
   LEFT, MID_LEFT, MID, MID_RIGHT, RIGHT, UNKNOWN,
 };
 
+enum receiver_state{
+  SYNCH,
+  LOST,
+};
+
 enum message_state{
-  SYNCH, 
+  START,
+  MESSAGE,
+  END,
 };
 
 volatile int counter = 0;
@@ -46,7 +53,8 @@ uint16_t right;
 //State variables
 tracking_state track_state = SCANNING;
 posistion_state pos_state;
-
+message_state msg_state = START;
+receiver_state rcv_state = LOST;
 int last_x_samples;
 
 void setup() {
@@ -229,9 +237,15 @@ int last_counter = 0;
 unsigned int process_start = 0;
 unsigned int process_end = 0;
 
+RingBuf<int, 500> bitBuffer;
 RingBuf<int, 500> messageBuffer;
 
-int locked = 0;
+int lost_lock_count = 0;
+
+int received_bit = 0;
+int bit_count = 0;
+int received_byte = 0;
+
 void loop() {
   
   process_start = millis();
@@ -242,14 +256,14 @@ void loop() {
     Serial.println("ERROR: RingBuffer Overflow");
   }
 
-  
+  // Attempt to pop ADC values
   if(myRingBuffer.pop(adcValues)){
     
     left = adcValues.left;
     right = adcValues.right;
     mid = adcValues.mid;
 
-    if(PRINT_VALUE == 1){
+    #ifdef PRINT_VALUE
       Serial.print(left);
       Serial.print(" | ");
       Serial.print(mid);
@@ -259,48 +273,96 @@ void loop() {
       Serial.print( adcValues.bit );
       Serial.print(" | ");
       Serial.println( adcValues.position );
-    }
-    messageBuffer.pushOverwrite(adcValues.bit);
+    #endif
+
+    bitBuffer.pushOverwrite(adcValues.bit);
 
     
 
-    if(messageBuffer.size() > 5){
+    if(bitBuffer.size() > 5){
       int messageSum = 0;
       int popval = 0;
 
       // Search
-      if(locked == 0){
-        messageBuffer.peek(popval, 0);
+      if(rcv_state == LOST){
+        bitBuffer.peek(popval, 0);
         messageSum += popval;
-        messageBuffer.peek(popval, 1);
+        bitBuffer.peek(popval, 1);
         messageSum += popval;
-        messageBuffer.peek(popval, 2);
+        bitBuffer.peek(popval, 2);
         messageSum += popval;
-        messageBuffer.peek(popval, 3);
+        bitBuffer.peek(popval, 3);
         messageSum += popval;
-        messageBuffer.peek(popval, 4);
+        bitBuffer.peek(popval, 4);
         messageSum += popval;
 
         if(messageSum == 5 || messageSum == 0){
-          locked = 1;
+          rcv_state = SYNCH;
         }else{
-          messageBuffer.pop(popval);
+          bitBuffer.pop(popval);
           Serial.println("Not locked...");
         }
       }
   
-      if(locked){
+      if(rcv_state == SYNCH){
         for(int i = 0; i < 5; i++){
-          messageBuffer.pop(popval);
+          bitBuffer.pop(popval);
           messageSum += popval;
         }
           
         if(messageSum == 5){
-          Serial.print("1");
+          messageBuffer.push(1);
         }else if(messageSum == 0){
-          Serial.print("0");
+          messageBuffer.push(0);
         }else{
-          locked = 0;
+          rcv_state = LOST;
+          lost_lock_count++;
+          Serial.print("Lost locked: ");
+          Serial.println(lost_lock_count);
+          messageBuffer.clear();
+        }
+
+        // Parse messageBuffer
+        // IDLE
+        if (messageBuffer.size() > 2){
+          if(msg_state == START) {
+            messageBuffer.peek(received_bit, 0); 
+            if(received_bit == 1){
+              messageBuffer.peek(received_bit, 1);
+              if(received_bit == 1){
+                messageBuffer.peek(received_bit, 2);
+                if(received_bit == 0){
+                  msg_state = MESSAGE;
+                  messageBuffer.pop(received_bit);
+                  messageBuffer.pop(received_bit);
+                  bit_count = 0;
+                  received_byte = 0;
+                }
+              }
+            }
+            // Otherwise, pop the buffer
+            messageBuffer.pop(received_bit);
+
+          // found start
+          }else if (msg_state == MESSAGE){
+            messageBuffer.pop(received_bit);
+            received_byte |= (received_bit) << (bit_count);
+            //store tmp
+            bit_count++;
+            if(bit_count == 8){
+              msg_state = END;
+            }
+
+          // grabbed message
+          }else if (msg_state == END){
+            messageBuffer.peek(received_bit, 0);
+            if(received_bit == 0){
+              //we screwed up...
+              Serial.println("Oops...");
+            }
+            msg_state = START;
+            Serial.print((char)received_byte);
+          }
         }
       }
     }
