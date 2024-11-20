@@ -46,11 +46,11 @@ void blinkLED() {
           start_message = 0;
           end_message = 0;
           bitCount = 0;
-          digitalWriteFast(ledPin, HIGH);
-          digitalWriteFast(irPin, HIGH);
-        }else{
           digitalWriteFast(ledPin, LOW);
           digitalWriteFast(irPin, LOW);
+        }else{
+          digitalWriteFast(ledPin, HIGH);
+          digitalWriteFast(irPin, HIGH);
         }
       }else if(end_message == 1){
         bitCount++;
@@ -59,8 +59,8 @@ void blinkLED() {
           bitCount = 0;
           end_message = 0;
         }
-        digitalWriteFast(ledPin, LOW);
-        digitalWriteFast(irPin, LOW);
+        digitalWriteFast(ledPin, HIGH);
+        digitalWriteFast(irPin, HIGH);
       }else{
         char currentByte = message[int(floor(messageCount / 8))];
         int currentBit = messageCount % 8;
@@ -72,8 +72,8 @@ void blinkLED() {
 
         Serial.print(bitRead(currentByte, currentBit));
   #endif
-        digitalWriteFast(ledPin, !bitRead(currentByte, currentBit));
-        digitalWriteFast(irPin, !bitRead(currentByte, currentBit));
+        digitalWriteFast(ledPin, bitRead(currentByte, currentBit));
+        digitalWriteFast(irPin, bitRead(currentByte, currentBit));
         messageCount++;
   #ifdef DEBUG
         if (messageCount % 8 == 0) {
@@ -91,8 +91,8 @@ void blinkLED() {
       }
     }
   }else{
-    digitalWriteFast(ledPin, LOW);
-    digitalWriteFast(irPin, LOW);
+    digitalWriteFast(ledPin, HIGH);
+    digitalWriteFast(irPin, HIGH);
   }
 }
 
