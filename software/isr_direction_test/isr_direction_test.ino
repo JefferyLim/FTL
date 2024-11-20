@@ -11,7 +11,9 @@
 // Convert Sampling Frequency (Hz) to period (us)
 double sampling_period = 1000000/SAMPLING_FREQ; // us
 
-//#define PRINT_VALUE 
+
+//PRINT_RAW, PRINT_BIT, PRINT_VALUE, PRINT_CHAR, PRINT_NONE
+#define PRINT_CHAR 
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
@@ -116,9 +118,9 @@ void read_sensors() { //Read analog sensor input
 
   //if(dataset.left + dataset.right + dataset.mid <= SENSOR_HIGH_THRESH){
   if(dataset.mid <= 500){
-    dataset.bit = false;
-  }else{
     dataset.bit = true;
+  }else{
+    dataset.bit = false;
   }
 
   edge_dif = dataset.left - dataset.right;
@@ -249,7 +251,6 @@ int received_byte = 0;
 void loop() {
   
   process_start = millis();
-  bool current_bit = false;
   struct photodiode_array adcValues;
 
   if(bufferOverflow){
@@ -263,7 +264,7 @@ void loop() {
     right = adcValues.right;
     mid = adcValues.mid;
 
-    #ifdef PRINT_VALUE
+    #ifdef PRINT_RAW
       Serial.print(left);
       Serial.print(" | ");
       Serial.print(mid);
@@ -276,8 +277,6 @@ void loop() {
     #endif
 
     bitBuffer.pushOverwrite(adcValues.bit);
-
-    
 
     if(bitBuffer.size() > 5){
       int messageSum = 0;
@@ -309,11 +308,20 @@ void loop() {
           bitBuffer.pop(popval);
           messageSum += popval;
         }
-          
+
         if(messageSum == 5){
           messageBuffer.push(1);
+          
+          #ifdef PRINT_BIT
+          Serial.print(1);
+          #endif
+
         }else if(messageSum == 0){
           messageBuffer.push(0);
+
+          #ifdef PRINT_BIT
+          Serial.print(0);
+          #endif
         }else{
           rcv_state = LOST;
           lost_lock_count++;
@@ -321,6 +329,7 @@ void loop() {
           Serial.println(lost_lock_count);
           messageBuffer.clear();
         }
+
 
         // Parse messageBuffer
         // IDLE
@@ -342,6 +351,9 @@ void loop() {
             }
             // Otherwise, pop the buffer
             messageBuffer.pop(received_bit);
+            #ifdef PRINT_VALUE
+            Serial.print(received_bit);
+            #endif
 
           // found start
           }else if (msg_state == MESSAGE){
@@ -361,7 +373,9 @@ void loop() {
               Serial.println("Oops...");
             }
             msg_state = START;
+            #ifdef PRINT_CHAR
             Serial.print((char)received_byte);
+            #endif
           }
         }
       }
