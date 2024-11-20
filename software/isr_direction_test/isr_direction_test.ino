@@ -11,6 +11,8 @@
 // Convert Sampling Frequency (Hz) to period (us)
 double sampling_period = 1000000/SAMPLING_FREQ; // us
 
+#define PRINT_VALUE 0
+
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
 IntervalTimer posistionTimer;
@@ -104,10 +106,11 @@ void read_sensors() { //Read analog sensor input
   dataset.mid = adc->adc0->analogRead(mid_pin);
   dataset.right = adc->adc0->analogRead(right_pin);
 
-  if(dataset.left + dataset.right + dataset.mid <= SENSOR_HIGH_THRESH){
-    dataset.bit = true;
-  }else{
+  //if(dataset.left + dataset.right + dataset.mid <= SENSOR_HIGH_THRESH){
+  if(dataset.mid <= 500){
     dataset.bit = false;
+  }else{
+    dataset.bit = true;
   }
 
   edge_dif = dataset.left - dataset.right;
@@ -226,7 +229,11 @@ int last_counter = 0;
 unsigned int process_start = 0;
 unsigned int process_end = 0;
 
+RingBuf<int, 500> messageBuffer;
+
+int locked = 0;
 void loop() {
+  
   process_start = millis();
   bool current_bit = false;
   struct photodiode_array adcValues;
@@ -235,23 +242,69 @@ void loop() {
     Serial.println("ERROR: RingBuffer Overflow");
   }
 
+  
   if(myRingBuffer.pop(adcValues)){
     
     left = adcValues.left;
     right = adcValues.right;
     mid = adcValues.mid;
 
-    Serial.print(left);
-    Serial.print(" | ");
-    Serial.print(mid);
-    Serial.print(" | ");
-    Serial.println(right );
-  
-    if(left + right + mid <= 3000){
-      current_bit = true;
-    }else{
-      current_bit = false;
+    if(PRINT_VALUE == 1){
+      Serial.print(left);
+      Serial.print(" | ");
+      Serial.print(mid);
+      Serial.print(" | ");
+      Serial.print(right );
+      Serial.print(" | ");
+      Serial.print( adcValues.bit );
+      Serial.print(" | ");
+      Serial.println( adcValues.position );
     }
+    messageBuffer.pushOverwrite(adcValues.bit);
+
+    
+
+    if(messageBuffer.size() > 5){
+      int messageSum = 0;
+      int popval = 0;
+
+      // Search
+      if(locked == 0){
+        messageBuffer.peek(popval, 0);
+        messageSum += popval;
+        messageBuffer.peek(popval, 1);
+        messageSum += popval;
+        messageBuffer.peek(popval, 2);
+        messageSum += popval;
+        messageBuffer.peek(popval, 3);
+        messageSum += popval;
+        messageBuffer.peek(popval, 4);
+        messageSum += popval;
+
+        if(messageSum == 5 || messageSum == 0){
+          locked = 1;
+        }else{
+          messageBuffer.pop(popval);
+          Serial.println("Not locked...");
+        }
+      }
+  
+      if(locked){
+        for(int i = 0; i < 5; i++){
+          messageBuffer.pop(popval);
+          messageSum += popval;
+        }
+          
+        if(messageSum == 5){
+          Serial.print("1");
+        }else if(messageSum == 0){
+          Serial.print("0");
+        }else{
+          locked = 0;
+        }
+      }
+    }
+
     //Serial.println(current_bit);
     // message_buf[i] = current_bit;
     // i++;
