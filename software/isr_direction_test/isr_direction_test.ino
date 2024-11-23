@@ -16,7 +16,7 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 #define SAMPLING_RATIO 10 // SAMPLING_FREQ/TRANSMIT_FREQ
 
 //PRINT_SAMPLE, PRINT_RAW, PRINT_BIT, PRINT_CHAR, PRINT_NONE
-#define PRINT_CHAR 
+#define PRINT_BIT 
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
@@ -110,6 +110,8 @@ int missingStartCounter = 0;
 // Received Message
 int receivedByte = 0;
 int crcByte = 0;
+volatile int crc_index;
+volatile int crccode;
 
 // Flags
 volatile bool bufferOverflow = 0;
@@ -410,13 +412,20 @@ void messageParse(){
           msg_state = CRC;
           bitShift = 0;
         
+        
+          #ifdef PRINT_CHAR
+          Serial.print(messageByteCount);
+          Serial.print(": ");
+          Serial.println((char)receivedByte);
+          #endif
+          
           #ifdef PRINT_BIT
             Serial.print("/");
           #endif
-          crc.add(receivedByte);
+          crc.add((uint8_t)receivedByte);
           crccode = crc.calc();
         }
-      else if (msg_state == CRC){
+      }else if (msg_state == CRC){
         // Pop 8 bits for the message
         messageBuffer.pop(receivedBit);
         #ifdef PRINT_BIT
@@ -429,6 +438,7 @@ void messageParse(){
           if(crccode != crcByte){
             Serial.println("ERROR: CRC does not match");
           }
+          crcByte = 0;
           crc.restart(); //remove all previous letters from the CRC calculation
           msg_state = END;
         }
@@ -441,11 +451,6 @@ void messageParse(){
           Serial.println("Found extra 0...");
         }
         msg_state = START;
-        #ifdef PRINT_CHAR
-        Serial.print(messageByteCount);
-        Serial.print(": ");
-        Serial.println((char)receivedByte);
-        #endif
 
         #ifdef PRINT_BIT
           Serial.println("/");
