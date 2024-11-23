@@ -25,10 +25,11 @@ volatile int crccode;
 
 // States for transmitter mode and state
 enum transmitter_mode{
-  BLINK, COUNTER, MESSAGE,
-}
+  BLINK, MESSAGE, COUNTER,
+};
+
 enum transmitter_state{
-  START, MESSAGE, CRC, END,
+  START, DATA, CRC, END,
 };
 
 transmitter_mode tx_mode = BLINK;
@@ -56,7 +57,7 @@ void transmitter() {
         bitCount++;
         //Send the preamble
         if(bitCount == 8){
-          tx_state = MESSAGE
+          tx_state = DATA;
           bitCount = 0;
           digitalWriteFast(ledPin, LOW);
           digitalWriteFast(irPin, LOW);
@@ -76,7 +77,7 @@ void transmitter() {
         digitalWriteFast(irPin, HIGH);
       //write the CRC code to the LEDs
       }else if (tx_state == CRC){
-        if (crc_index > 7) {
+        if (crc_index >= 7) {
           tx_state = END;
           if (messageCount >= messageLength * 8) {
             messageCount = 0;
@@ -92,13 +93,13 @@ void transmitter() {
         crc_index++;
         
       }else{
-         char currentByte;
+         char currentByte = 0;
          int currentBit = messageCount % 8;
 
         if(tx_mode == MESSAGE){
           currentByte = message[int(floor(messageCount / 8))];
           currentBit = messageCount % 8;
-        }else if(tx_mode == COUNTER){
+        }else{ // tx_mode == COUNTER
           if(counter > 57){ //ascii for 9
             counter = 48; //ascii for 0
           }
