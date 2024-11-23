@@ -21,7 +21,7 @@ int ledState = LOW;
 volatile int bitCount = 0;
 volatile int messageCount = 0;
 volatile int crc_index;
-volatile int crccode; 
+volatile int crccode;
 
 // States for transmitter mode and state
 enum transmitter_mode{
@@ -83,9 +83,9 @@ void transmitter() {
           }
           crc.restart(); //remove all previous letters from the CRC calculation
         }else{
-  #ifdef DEBUG
+          #ifdef DEBUG
           Serial.println(bitRead(crccode, crc_index)); //prints the current bit of CRC code
-  #endif
+          #endif
           digitalWriteFast(ledPin, bitRead(crccode, crc_index));
           digitalWriteFast(irPin, bitRead(crccode, crc_index));
         }
@@ -93,7 +93,7 @@ void transmitter() {
         
       }else{
          char currentByte;
-         int currentBit;
+         int currentBit = messageCount % 8;
 
         if(tx_mode == MESSAGE){
           currentByte = message[int(floor(messageCount / 8))];
@@ -103,27 +103,26 @@ void transmitter() {
             counter = 48; //ascii for 0
           }
           currentByte = counter;
-          currentBit = messageCount % 8;
         } 
         
-  #ifdef DEBUG
+        #ifdef DEBUG
         //prints the current byte in ASCII
         if (currentBit == 0) {
           Serial.println(message[int(floor(messageCount / 8))]);
         }
         //prints the current byte in binary
         Serial.print(bitRead(currentByte, currentBit));
-  #endif
+        #endif
+
         digitalWriteFast(ledPin, bitRead(currentByte, currentBit));
         digitalWriteFast(irPin, bitRead(currentByte, currentBit));
         messageCount++;
-  #ifdef DEBUG
-        if (messageCount % 8 == 0) {
-          Serial.println();
-        }
-  #endif
+
       //at the end of each byte
       if(messageCount % 8 == 0){
+          #ifdef DEBUG
+          Serial.println();
+          #endif
           //create crc
           crc.add(currentByte);
           crccode = crc.calc();
@@ -219,10 +218,11 @@ void loop() {
 
   while (Serial.available() != 0) {
     incomingByte = Serial.read();
+    
+    Serial.println();
     switch (incomingByte) {
       case 's':  // start or stop transmitter
         halt = !halt;
-        Serial.println();
         if (halt) {
           Serial.println("stopping...");
         } else {
@@ -270,7 +270,6 @@ void loop() {
           tx_mode = BLINK;
         }
 
-        Serial.println();
         if (tx_mode == BLINK) {
           Serial.println("LED blinking...");
         } else if(tx_mode == MESSAGE){
