@@ -1,3 +1,6 @@
+#include "CRC8.h"
+#define DEBUG
+CRC8 crc;
 // Create an IntervalTimer object
 IntervalTimer myTimer;
 
@@ -17,7 +20,9 @@ volatile int bitCount = 0;
 volatile int messageCount = 0;
 bool start_message = 1;
 bool end_message = 0;
-
+bool crc_message = 1;
+volatile int crc_index;
+volatile int crccode; 
 // functions called by IntervalTimer should be short, run as quickly as
 // possible, and should avoid calling other functions if possible.
 void blinkLED() {
@@ -37,20 +42,21 @@ void blinkLED() {
       bitCount = 0;
     } else if (toggle == 1 or toggle == 2) {
       // transmitter mode: transmit message
-
       if(start_message == 1){
         bitCount++;
-        // Send a bunch of "1" to receiver
+        //Send the preamble
         if(bitCount == 8){
           start_message = 0;
           end_message = 0;
           bitCount = 0;
           digitalWriteFast(ledPin, LOW);
           digitalWriteFast(irPin, LOW);
+        //send the start bit
         }else{
           digitalWriteFast(ledPin, HIGH);
           digitalWriteFast(irPin, HIGH);
         }
+      //set LEDs high so resting state is on
       }else if(end_message == 1){
         bitCount++;
         if(bitCount == 8){
@@ -60,6 +66,26 @@ void blinkLED() {
         }
         digitalWriteFast(ledPin, HIGH);
         digitalWriteFast(irPin, HIGH);
+      //write the CRC code to the LEDs
+      }else if (crc_message==1){
+        if (crc_index > 7) {
+          end_message = 1;
+          crc_message = 0;
+          if (messageCount >= messageLength * 8) {
+            messageCount = 0;
+            start_message = 0;
+            end_message = 1;
+          }
+          crc.restart(); //remove all previous letters from the CRC calculation
+        }else{
+  #ifdef DEBUG
+          Serial.println(bitRead(crccode, crc_index)); //prints the current bit of CRC code
+  #endif
+          digitalWriteFast(ledPin, bitRead(crccode, crc_index));
+          digitalWriteFast(irPin, bitRead(crccode, crc_index));
+        }
+        crc_index++;
+        
       }else{
          char currentByte;
          int currentBit;
@@ -76,12 +102,14 @@ void blinkLED() {
         } 
         
   #ifdef DEBUG
+        //prints the current byte in ASCII
         if (currentBit == 0) {
           Serial.println(message[int(floor(messageCount / 8))]);
         }
-
+        //prints the current byte in binary
         Serial.print(bitRead(currentByte, currentBit));
   #endif
+
         digitalWriteFast(ledPin, bitRead(currentByte, currentBit));
         digitalWriteFast(irPin, bitRead(currentByte, currentBit));
         messageCount++;
@@ -90,9 +118,14 @@ void blinkLED() {
           Serial.println();
         }
   #endif
-        if (messageCount >= messageLength * 8) {
-          messageCount = 0;
+      //at the end of each byte
+      if(messageCount % 8 == 0){
           start_message = 0;
+          //create crc
+          crc.add(currentByte);
+          crccode = crc.calc();
+          crc_message = 1;
+          crc_index = 0;
           end_message = 1;
           counter++;
         }else if(messageCount % 8 == 0){
