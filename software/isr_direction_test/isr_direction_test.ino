@@ -5,15 +5,17 @@
 #include <RingBuf.h>
 #include <IntervalTimer.h>
 
-#define SENSOR_THRESH 1000
 #define SENSOR_DIF_THRESH 100
-#define SENSOR_HIGH_THRESH 3000 //1023 max per person
+
+#define SENSOR_ON_THRESH 400 // Sensor detecting
+#define SENSOR_OFF_THRESH 1000 // Sensor not detecting
 
 #define SAMPLING_FREQ 5000 // Hz
 // Convert Sampling Frequency (Hz) to period (us)
 double sampling_period = 1000000/SAMPLING_FREQ; // us
 
 #define SAMPLING_RATIO 10 // SAMPLING_FREQ/TRANSMIT_FREQ
+
 
 //PRINT_SAMPLE, PRINT_RAW, PRINT_BIT, PRINT_CHAR, PRINT_NONE
 #define PRINT_BIT 
@@ -133,11 +135,12 @@ void read_sensors() { //Read analog sensor input
   dataset.mid = adc->adc1->analogRead(mid_pin);
   dataset.right = adc->adc0->analogRead(right_pin);
 
-  //if(dataset.left + dataset.right + dataset.mid <= SENSOR_HIGH_THRESH){
-  if(dataset.left <= 400 || dataset.right <= 400 || dataset.mid <= 400){
+  if(dataset.left <= SENSOR_ON_THRESH || dataset.right <= SENSOR_ON_THRESH \
+   || dataset.mid <= SENSOR_ON_THRESH){
     dataset.bit = true;
     dataset.bit_confidence = true;
-  }else if(dataset.left >= 1000 && dataset.right >= 1000 && dataset.mid >= 1000) {
+  }else if(dataset.left >= SENSOR_OFF_THRESH && dataset.right >= SENSOR_OFF_THRESH \
+    && dataset.mid >= SENSOR_OFF_THRESH) {
     dataset.bit = false;
     dataset.bit_confidence = true;
   }else{
@@ -345,6 +348,7 @@ void messageParse(){
     }else{
       bitCount = 0;
       rcv_state = LOST;
+      Serial.println();
       Serial.println("Ambiguous bits; returning to LOST...");
       lostLockCount++;
       messageBuffer.clear();
@@ -435,6 +439,10 @@ void messageParse(){
 
         bitShift++;
         if(bitShift >= 8){
+            
+          #ifdef PRINT_BIT
+            Serial.print("/");
+          #endif
           if(crccode != crcByte){
             Serial.print(" (ERROR: CRC does not match: ");
             Serial.print(crcByte, HEX);
@@ -458,9 +466,6 @@ void messageParse(){
         }
         msg_state = START;
 
-        #ifdef PRINT_BIT
-          Serial.println("/");
-        #endif
       }
     }
   }
