@@ -66,33 +66,7 @@ void transmitter() {
           digitalWriteFast(ledPin, HIGH);
           digitalWriteFast(irPin, HIGH);
         }
-      //set LEDs high so resting state is on
-      }else if(tx_state == END){
-        bitCount++;
-        if(bitCount == 8){
-          tx_state = START;
-          bitCount = 0;
-        }
-        digitalWriteFast(ledPin, HIGH);
-        digitalWriteFast(irPin, HIGH);
-      //write the CRC code to the LEDs
-      }else if (tx_state == CRC){
-        if (crc_index >= 7) {
-          tx_state = END;
-          if (messageCount >= messageLength * 8) {
-            messageCount = 0;
-          }
-          crc.restart(); //remove all previous letters from the CRC calculation
-        }else{
-          #ifdef DEBUG
-          Serial.println(bitRead(crccode, crc_index)); //prints the current bit of CRC code
-          #endif
-          digitalWriteFast(ledPin, bitRead(crccode, crc_index));
-          digitalWriteFast(irPin, bitRead(crccode, crc_index));
-        }
-        crc_index++;
-        
-      }else{
+      }else if(tx_state == DATA){
          char currentByte = 0;
          int currentBit = messageCount % 8;
 
@@ -131,6 +105,33 @@ void transmitter() {
           crc_index = 0;
           counter++;
         }
+      //set LEDs high so resting state is on
+      }else if (tx_state == CRC){
+        if (crc_index > 7) {
+          
+          digitalWriteFast(ledPin, HIGH);
+          digitalWriteFast(irPin, HIGH);
+          tx_state = END;
+          if (messageCount >= messageLength * 8) {
+            messageCount = 0;
+          }
+          crc.restart(); //remove all previous letters from the CRC calculation
+        }else{
+          #ifdef DEBUG
+          Serial.println(bitRead(crccode, crc_index)); //prints the current bit of CRC code
+          #endif
+          digitalWriteFast(ledPin, bitRead(crccode, crc_index));
+          digitalWriteFast(irPin, bitRead(crccode, crc_index));
+        }
+        crc_index++;
+        
+      }else if(tx_state == END){
+        bitCount++;
+        if(bitCount == 8){
+          tx_state = START;
+          bitCount = 0;
+        }
+      //write the CRC code to the LEDs
       }
     }
   }else{
