@@ -416,7 +416,7 @@ void messageParse(){
           #ifdef PRINT_CHAR
           Serial.print(messageByteCount);
           Serial.print(": ");
-          Serial.println((char)receivedByte);
+          Serial.print((char)receivedByte);
           #endif
           
           #ifdef PRINT_BIT
@@ -436,7 +436,13 @@ void messageParse(){
         bitShift++;
         if(bitShift >= 8){
           if(crccode != crcByte){
-            Serial.println("ERROR: CRC does not match");
+            Serial.print(" (ERROR: CRC does not match: ");
+            Serial.print(crcByte, HEX);
+            Serial.print(", Expected: ");
+            Serial.print(crccode, HEX);
+            Serial.println(")");
+          }else{
+            Serial.println();
           }
           crcByte = 0;
           crc.restart(); //remove all previous letters from the CRC calculation
