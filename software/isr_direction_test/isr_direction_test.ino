@@ -1,3 +1,5 @@
+#include "CRC8.h"
+
 //Threshold values
 #include <ADC.h>
 #include <RingBuf.h>
@@ -44,6 +46,7 @@ enum receiver_state{
 enum message_state{
   START,
   MESSAGE,
+  CRC,
   END,
 };
 
@@ -97,6 +100,7 @@ RingBuf<photodiode_array, 500> adcBuffer; // for raw ADC outputs + other metrics
 RingBuf<photodiode_array, 500> bitBuffer; // extra buffer before message parsing
 RingBuf<int, 500> messageBuffer; // buffer for collecting bits for message parsing
 
+CRC8 crc;
 
 // Counters
 int lostLockCount = 0;
@@ -105,6 +109,7 @@ int missingStartCounter = 0;
 
 // Received Message
 int receivedByte = 0;
+int crcByte = 0;
 
 // Flags
 volatile bool bufferOverflow = 0;
@@ -290,7 +295,7 @@ int bitShift = 0;
 void messageParse(){
   struct photodiode_array adcValues;
   int bitCount = 0;
-  int received_bit = 0;
+  int receivedBit = 0;
 
   // Double check that buffer is >5
   if(bitBuffer.size() < 5){
@@ -359,11 +364,11 @@ void messageParse(){
           bitCount = 0;
           // Look for a 111110
           for(int i = 0; i < 6; i++){
-            messageBuffer.peek(received_bit, i);
-            if(i != 5 && received_bit == 0){
+            messageBuffer.peek(receivedBit, i);
+            if(i != 5 && receivedBit == 0){
               break;
             }
-            if(i == 5 && received_bit == 0){
+            if(i == 5 && receivedBit == 0){
               bitCount = 5;
             }
           }
@@ -372,9 +377,9 @@ void messageParse(){
           if(bitCount == 5){
             msg_state = MESSAGE;
             for(bitCount = 5; bitCount >= 0; bitCount--){
-              messageBuffer.pop(received_bit);
+              messageBuffer.pop(receivedBit);
               #ifdef PRINT_BIT
-              Serial.print(received_bit);
+              Serial.print(receivedBit);
               #endif
             }
             bitCount = 0;
@@ -382,35 +387,57 @@ void messageParse(){
             receivedByte = 0;
             missingStartCounter = 0;
             #ifdef PRINT_BIT
-              Serial.print("|");
+              Serial.print("||");
             #endif
           }else{
-            messageBuffer.pop(received_bit);
+            messageBuffer.pop(receivedBit);
             #ifdef PRINT_BIT
-            Serial.print(received_bit);
+            Serial.print(receivedBit);
             #endif
           }
         }
       // found start
       }else if (msg_state == MESSAGE){
         // Pop 8 bits for the message
-        messageBuffer.pop(received_bit);
+        messageBuffer.pop(receivedBit);
         #ifdef PRINT_BIT
-        Serial.print(received_bit);
+        Serial.print(receivedBit);
         #endif
-        receivedByte |= (received_bit) << (bitShift);
+        receivedByte |= (receivedBit) << (bitShift);
         
         bitShift++;
         if(bitShift >= 8){
-          msg_state = END;
+          msg_state = CRC;
           bitShift = 0;
+        
+          #ifdef PRINT_BIT
+            Serial.print("/");
+          #endif
+          crc.add(receivedByte);
+          crccode = crc.calc();
         }
+      else if (msg_state == CRC){
+        // Pop 8 bits for the message
+        messageBuffer.pop(receivedBit);
+        #ifdef PRINT_BIT
+        Serial.print(receivedBit);
+        #endif
+        crcByte |= (receivedBit) << (bitShift);
 
+        bitShift++;
+        if(bitShift >= 8){
+          if(crccode != crcByte){
+            Serial.println("ERROR: CRC does not match");
+          }
+          crc.restart(); //remove all previous letters from the CRC calculation
+          msg_state = END;
+        }
+        
       // grabbed message, just peek to make sure there isn't any more '0's after...
       }else if (msg_state == END){
         messageByteCount++;
-        messageBuffer.peek(received_bit, 0);
-        if(received_bit == 0){
+        messageBuffer.peek(receivedBit, 0);
+        if(receivedBit == 0){
           Serial.println("Found extra 0...");
         }
         msg_state = START;
