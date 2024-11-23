@@ -18,7 +18,7 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
-IntervalTimer posistionTimer;
+IntervalTimer positionTimer;
 
 const int left_pin = A0;
 const int mid_pin = A1;
@@ -32,7 +32,7 @@ enum tracking_state{
   LOCKED,
 };
 
-enum posistion_state{
+enum position_state{
   LEFT, MID_LEFT, MID, MID_RIGHT, RIGHT, UNKNOWN,
 };
 
@@ -47,26 +47,14 @@ enum message_state{
   END,
 };
 
-volatile int counter = 0;
 //Sensor variables
-uint16_t left;
-uint16_t mid;
-uint16_t right;
-
-
-const int irPin = 2;            // the pin with IR diode
-
-
 //State variables
 tracking_state track_state = SCANNING;
-posistion_state pos_state;
+position_state pos_state;
 message_state msg_state = START;
 receiver_state rcv_state = LOST;
-int last_x_samples;
 
 void setup() {
-  
-  pinMode(irPin, OUTPUT);
   pinMode(left_pin, INPUT);
   pinMode(mid_pin, INPUT);
   pinMode(right_pin, INPUT);
@@ -86,10 +74,10 @@ void setup() {
   adc->adc1->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED); // change the sampling speed
 
   sensor_readTimer.priority(0); //Set sens  or priority higher
-  posistionTimer.priority(1);
+  positionTimer.priority(1);
   
   sensor_readTimer.begin(read_sensors,(int)sampling_period); //Read senors every 0.01 seconds
-  //posistionTimer.begin(find_posistion,100000); //Process every 0.1 seconds
+  //positionTimer.begin(find_position,100000); //Process every 0.1 seconds
 }
 
 // Created photodiode array struct
@@ -98,22 +86,35 @@ struct photodiode_array{
   uint16_t mid;
   uint16_t right;
   uint8_t bit : 1;
-  uint8_t bit_unknown : 1;
+  uint8_t bit_confidence : 1;
   uint8_t : 3;
   uint8_t position : 3;
   
 };
 
-// RingBuffer for ADC sampling
-RingBuf<photodiode_array, 500> myRingBuffer;
+// RingBuffers
+RingBuf<photodiode_array, 500> adcBuffer; // for raw ADC outputs + other metrics
+RingBuf<photodiode_array, 500> bitBuffer; // extra buffer before message parsing
+RingBuf<int, 500> messageBuffer; // buffer for collecting bits for message parsing
+
+
+// Counters
+int lostLockCount = 0;
+int messageByteCount = 0;
+int missingStartCounter = 0;
+
+// Received Message
+int receivedByte = 0;
+
+// Flags
 volatile bool bufferOverflow = 0;
 
+// Performance Calcs
 volatile int start = 0;
 volatile int end = 0;
 
 void read_sensors() { //Read analog sensor input
   start = micros();
-  digitalWriteFast(irPin, HIGH);
   struct photodiode_array dataset = {0};
 
   //difference variables
@@ -122,19 +123,19 @@ void read_sensors() { //Read analog sensor input
   int mid_right_dif;
 
   dataset.left = adc->adc0->analogRead(left_pin);
-  dataset.mid = adc->adc0->analogRead(mid_pin);
+  dataset.mid = adc->adc1->analogRead(mid_pin);
   dataset.right = adc->adc0->analogRead(right_pin);
 
   //if(dataset.left + dataset.right + dataset.mid <= SENSOR_HIGH_THRESH){
   if(dataset.left <= 400 || dataset.right <= 400 || dataset.mid <= 400){
     dataset.bit = true;
-    dataset.bit_unknown = false;
+    dataset.bit_confidence = true;
   }else if(dataset.left >= 1000 && dataset.right >= 1000 && dataset.mid >= 1000) {
     dataset.bit = false;
-    dataset.bit_unknown = false;
+    dataset.bit_confidence = true;
   }else{
     dataset.bit = true;
-    dataset.bit_unknown = true;
+    dataset.bit_confidence = false;
   }
 
   edge_dif = dataset.left - dataset.right;
@@ -162,21 +163,19 @@ void read_sensors() { //Read analog sensor input
       dataset.position = MID_RIGHT;
     }
 
-    if(abs(edge_dif - mid_right_dif) < SENSOR_DIF_THRESH && right < left){ //If right of diodes
+    if(abs(edge_dif - mid_right_dif) < SENSOR_DIF_THRESH && dataset.right < dataset.left){ //If right of diodes
       dataset.position = RIGHT;
     }
   }
 
-  if(!myRingBuffer.push(dataset)){
+  if(!adcBuffer.push(dataset)){
     Serial.println("ERROR: Can't push to buffer");
-    bufferOverflow = 1;
   }
+
   end = micros();
-  digitalWriteFast(irPin, LOW);
-  
 }
 
-void find_posistion(){ //Determine posistion of transmitter
+void find_position(){ //Determine position of transmitter
 //   //Difference calculations
 //   edge_dif = left - right;
 //   left_mid_dif = left - mid;
@@ -251,25 +250,7 @@ void find_posistion(){ //Determine posistion of transmitter
   // Serial.println(mid_right_dif);
 }
 
-bool message_buf[1024];
-int i = 0;
-int last_counter = 0;
-
-
-unsigned int process_start = 0;
-unsigned int process_end = 0;
-
-RingBuf<photodiode_array, 500> bitBuffer;
-RingBuf<int, 500> messageBuffer;
-
-int lost_lock_count = 0;
-
-int received_bit = 0;
-int received_byte = 0;
-
-int missing_start = 0;
-
-
+// Print function for printing the photodiode struct
 void print_photodiode_struct(struct photodiode_array input){
 
   Serial.print(input.left);
@@ -280,7 +261,7 @@ void print_photodiode_struct(struct photodiode_array input){
   Serial.print(" | ");
   Serial.print(input.bit );
   Serial.print(" | ");
-  Serial.print(input.bit_unknown );
+  Serial.print(input.bit_confidence );
   Serial.print(" | ");
 
   switch (input.position) {
@@ -300,19 +281,16 @@ void print_photodiode_struct(struct photodiode_array input){
       Serial.println("RIGHT");
       break;
     default:
-      Serial.println("Unknown state");
+      Serial.println("UNKNOWN");
       break;
   }
 }
 
-volatile int unknown_count = 0;
 int bitShift = 0;
-int messageByteCount = 0;
 void messageParse(){
   struct photodiode_array adcValues;
-
-  int messageSum = 0;
   int bitCount = 0;
+  int received_bit = 0;
 
   // Double check that buffer is >5
   if(bitBuffer.size() < 5){
@@ -320,20 +298,23 @@ void messageParse(){
   }
 
   // If we are in a "LOST" state... try and find presence of a signal...
+  // A presence of a signal is 5 '1's or IR LED ON 
   if(rcv_state == LOST){
     for(int i = 0; i < 5; i++){
+      // Look at the next 5 values
       bitBuffer.peek(adcValues, i);
-      // Look for 5 '1's
-      if(adcValues.bit_unknown == 0){
+      // Note, that if the bit confidence is high, then we can use the these samples
+      // We only want to use 5 confident bits for now...
+      if(adcValues.bit_confidence == 1){
         bitCount += adcValues.bit;
       }else{
-        // if we see a single bit not confident, exit
         bitCount = 0;
         break;
       }
     }
   
     // If we find at least 4 '1' samples, lets start parsing
+    // Move from LOST -> SYNCH
     if(bitCount >= 4){
       Serial.println("Sync");
       rcv_state = SYNCH;
@@ -342,33 +323,36 @@ void messageParse(){
       bitBuffer.pop(adcValues);
     }
   }else if(rcv_state == SYNCH){
-    // Begin counting 
+    // Begin counting bits
     for(int i = 0; i < 5; i++){
       bitBuffer.pop(adcValues);
-      messageSum += adcValues.bit;
+      bitCount += adcValues.bit;
     }
 
-    if(messageSum >= 3){
+    // Do a majority vote
+    // Anything inbetween is ambiguous, and we will exit SYNCH
+    if(bitCount >= 4){
       messageBuffer.push(1);
-    }else if(messageSum <= 2){
+    }else if(bitCount <= 1){
       messageBuffer.push(0);
     }else{
+      bitCount = 0;
       rcv_state = LOST;
       Serial.println("Ambiguous bits; returning to LOST...");
-      lost_lock_count++;
+      lostLockCount++;
       messageBuffer.clear();
-      missing_start = 0;
+      missingStartCounter = 0;
     }
 
-    // Parse messageBuffer
-    // IDLE
+    // Parse the bits for the message
     if (messageBuffer.size() > 6){
       if(msg_state == START) {
-        missing_start++;
-        if(missing_start > SAMPLING_FREQ){
+        missingStartCounter++;
+        // If we dont' find the start within 1 second, then we exit SYNCH
+        if(missingStartCounter > SAMPLING_FREQ){
           Serial.println("Can't find start bit...");
           messageBuffer.clear();
-          missing_start = 0;
+          missingStartCounter = 0;
           rcv_state = LOST;
           Serial.println("Receiver can't find start bit; returning to LOST...");
         }else{
@@ -395,8 +379,8 @@ void messageParse(){
             }
             bitCount = 0;
             bitShift = 0;
-            received_byte = 0;
-            missing_start = 0;
+            receivedByte = 0;
+            missingStartCounter = 0;
             #ifdef PRINT_BIT
               Serial.print("|");
             #endif
@@ -409,12 +393,12 @@ void messageParse(){
         }
       // found start
       }else if (msg_state == MESSAGE){
+        // Pop 8 bits for the message
         messageBuffer.pop(received_bit);
         #ifdef PRINT_BIT
         Serial.print(received_bit);
         #endif
-        received_byte |= (received_bit) << (bitShift);
-        //store tmp
+        receivedByte |= (received_bit) << (bitShift);
         
         bitShift++;
         if(bitShift >= 8){
@@ -422,7 +406,7 @@ void messageParse(){
           bitShift = 0;
         }
 
-      // grabbed message
+      // grabbed message, just peek to make sure there isn't any more '0's after...
       }else if (msg_state == END){
         messageByteCount++;
         messageBuffer.peek(received_bit, 0);
@@ -433,8 +417,9 @@ void messageParse(){
         #ifdef PRINT_CHAR
         Serial.print(messageByteCount);
         Serial.print(": ");
-        Serial.println((char)received_byte);
+        Serial.println((char)receivedByte);
         #endif
+
         #ifdef PRINT_BIT
           Serial.println("/");
         #endif
@@ -451,22 +436,17 @@ void loop() {
   }
 
   // Attempt to pop ADC values
-  if(myRingBuffer.pop(adcValues)){
-    left = adcValues.left;
-    right = adcValues.right;
-    mid = adcValues.mid;
-
+  if(adcBuffer.pop(adcValues)){
     #ifdef PRINT_SAMPLE
       print_photodiode_struct(adcValues);
     #endif
-
 
     #ifndef PRINT_SAMPLE
     // Pushing ADC bits to a buffer for messages
     if(!bitBuffer.push(adcValues)){
       Serial.println("ERROR: Can't push to bitBuffer");
     }
-    // Parse message
+    // Parse the bit for a message
     if(bitBuffer.size() > 5){
       messageParse();
     }
@@ -478,7 +458,7 @@ void loop() {
 
   // if(i == 1024){
   //   sensor_readTimer.end();
-  //   myRingBuffer.clear();
+  //   adcBuffer.clear();
   //   //char ascii_string[128];
   //   //int ascii_index = 0;
   //   for(int j = 0; j < 1024; j++){
