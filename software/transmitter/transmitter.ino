@@ -1,14 +1,13 @@
-#define DEBUG
-
 // Create an IntervalTimer object
 IntervalTimer myTimer;
 
 const int ledPin = LED_BUILTIN;  // the pin with a LED
-const int irPin = 19;            // the pin with IR diode
+const int irPin = 2;            // the pin with IR diode
 
-volatile bool toggle = 1;
+volatile int toggle = 0;
 char* message;
 int messageLength = -1;
+int counter = 48; //ascii character
 
 volatile bool halt = 0;
 volatile int baud = 9600;
@@ -24,7 +23,7 @@ bool end_message = 0;
 void blinkLED() {
   if (!halt) {
     // toggle mode: blink LED
-    if (toggle) {
+    if (toggle == 0) {
       if (ledState == HIGH) {
         ledState = LOW;
       } else {
@@ -36,7 +35,7 @@ void blinkLED() {
       start_message = 1;
       end_message = 0;
       bitCount = 0;
-    } else {
+    } else if (toggle == 1 or toggle == 2) {
       // transmitter mode: transmit message
 
       if(start_message == 1){
@@ -62,9 +61,20 @@ void blinkLED() {
         digitalWriteFast(ledPin, HIGH);
         digitalWriteFast(irPin, HIGH);
       }else{
-        char currentByte = message[int(floor(messageCount / 8))];
-        int currentBit = messageCount % 8;
+         char currentByte;
+         int currentBit;
 
+        if(toggle == 1){
+          currentByte = message[int(floor(messageCount / 8))];
+          currentBit = messageCount % 8;
+        }else if(toggle == 2){
+          if(counter > 57){ //ascii for 9
+            counter = 48; //ascii for 0
+          }
+          currentByte = counter;
+          currentBit = messageCount % 8;
+        } 
+        
   #ifdef DEBUG
         if (currentBit == 0) {
           Serial.println(message[int(floor(messageCount / 8))]);
@@ -84,9 +94,11 @@ void blinkLED() {
           messageCount = 0;
           start_message = 0;
           end_message = 1;
+          counter++;
         }else if(messageCount % 8 == 0){
           start_message = 0;
           end_message = 1;
+          counter++;
         }
       }
     }
@@ -104,7 +116,7 @@ void usage() {
   Serial.println("s          - start/stop transmitter");
   Serial.println("b [number] - set baud rate ");
   Serial.println("m [string] - set transmit message ");
-  Serial.println("t          - set toggle mode (blink) ");
+  Serial.println("t          - set toggle mode");
 }
 
 
@@ -217,12 +229,19 @@ void loop() {
         }
         break;
       case 't':
-        toggle = !toggle;
+        halt = 1;
+        toggle += 1;
+        if(toggle > 2){
+          toggle = 0;
+        }
         Serial.println();
-        if (toggle) {
-          Serial.println("enable LED toggling...");
-        } else {
-          Serial.println("disable LED toggling...");
+        if (toggle == 0) {
+          Serial.println("LED blinking...");
+        } else if(toggle == 1){
+          Serial.println("Message transmit..");
+        } else if(toggle == 2){
+          Serial.println("Counter transmit..");
+          counter = 48;
         }
         break;
       case '\n':
