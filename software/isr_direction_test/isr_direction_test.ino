@@ -7,7 +7,7 @@
 #define SENSOR_DIF_THRESH 100
 #define SENSOR_HIGH_THRESH 3000 //1023 max per person
 
-#define SAMPLING_FREQ 1000 // Hz
+#define SAMPLING_FREQ 5000 // Hz
 // Convert Sampling Frequency (Hz) to period (us)
 double sampling_period = 1000000/SAMPLING_FREQ; // us
 
