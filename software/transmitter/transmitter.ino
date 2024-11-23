@@ -1,34 +1,45 @@
 #include "CRC8.h"
-#define DEBUG
+
 CRC8 crc;
 // Create an IntervalTimer object
-IntervalTimer myTimer;
+IntervalTimer txTimer;
 
-const int ledPin = LED_BUILTIN;  // the pin with a LED
+const int ledPin = LED_BUILTIN; // the pin with a LED
 const int irPin = 2;            // the pin with IR diode
 
-volatile int toggle = 0;
+// messages for transmission
 char* message;
 int messageLength = -1;
 int counter = 48; //ascii character
 
-volatile bool halt = 0;
+// Controls
 volatile int baud = 9600;
+volatile bool halt = 0;
+
+// Transmit variables
 int ledState = LOW;
-volatile unsigned long blinkCount = 0;  // use volatile for shared variables
 volatile int bitCount = 0;
 volatile int messageCount = 0;
-bool start_message = 1;
-bool end_message = 0;
-bool crc_message = 1;
 volatile int crc_index;
 volatile int crccode; 
+
+// States for transmitter mode and state
+enum transmitter_mode{
+  BLINK, COUNTER, MESSAGE,
+}
+enum transmitter_state{
+  START, MESSAGE, CRC, END,
+};
+
+transmitter_mode tx_mode = BLINK;
+transmitter_state tx_state = START;
+
 // functions called by IntervalTimer should be short, run as quickly as
 // possible, and should avoid calling other functions if possible.
-void blinkLED() {
+void transmitter() {
   if (!halt) {
     // toggle mode: blink LED
-    if (toggle == 0) {
+    if (tx_mode == BLINK) {
       if (ledState == HIGH) {
         ledState = LOW;
       } else {
@@ -37,17 +48,15 @@ void blinkLED() {
       digitalWriteFast(ledPin, ledState);
       digitalWriteFast(irPin, ledState);
       messageCount = 0;
-      start_message = 1;
-      end_message = 0;
+      tx_state = START;
       bitCount = 0;
-    } else if (toggle == 1 or toggle == 2) {
+    } else if (tx_mode != BLINK) {
       // transmitter mode: transmit message
-      if(start_message == 1){
+      if(tx_state == START){
         bitCount++;
         //Send the preamble
         if(bitCount == 8){
-          start_message = 0;
-          end_message = 0;
+          tx_state = MESSAGE
           bitCount = 0;
           digitalWriteFast(ledPin, LOW);
           digitalWriteFast(irPin, LOW);
@@ -57,24 +66,20 @@ void blinkLED() {
           digitalWriteFast(irPin, HIGH);
         }
       //set LEDs high so resting state is on
-      }else if(end_message == 1){
+      }else if(tx_state == END){
         bitCount++;
         if(bitCount == 8){
-          start_message = 1;
+          tx_state = START;
           bitCount = 0;
-          end_message = 0;
         }
         digitalWriteFast(ledPin, HIGH);
         digitalWriteFast(irPin, HIGH);
       //write the CRC code to the LEDs
-      }else if (crc_message==1){
+      }else if (tx_state == CRC){
         if (crc_index > 7) {
-          end_message = 1;
-          crc_message = 0;
+          tx_state = END;
           if (messageCount >= messageLength * 8) {
             messageCount = 0;
-            start_message = 0;
-            end_message = 1;
           }
           crc.restart(); //remove all previous letters from the CRC calculation
         }else{
@@ -90,10 +95,10 @@ void blinkLED() {
          char currentByte;
          int currentBit;
 
-        if(toggle == 1){
+        if(tx_mode == MESSAGE){
           currentByte = message[int(floor(messageCount / 8))];
           currentBit = messageCount % 8;
-        }else if(toggle == 2){
+        }else if(tx_mode == COUNTER){
           if(counter > 57){ //ascii for 9
             counter = 48; //ascii for 0
           }
@@ -109,7 +114,6 @@ void blinkLED() {
         //prints the current byte in binary
         Serial.print(bitRead(currentByte, currentBit));
   #endif
-
         digitalWriteFast(ledPin, bitRead(currentByte, currentBit));
         digitalWriteFast(irPin, bitRead(currentByte, currentBit));
         messageCount++;
@@ -120,17 +124,11 @@ void blinkLED() {
   #endif
       //at the end of each byte
       if(messageCount % 8 == 0){
-          start_message = 0;
           //create crc
           crc.add(currentByte);
           crccode = crc.calc();
-          crc_message = 1;
+          tx_state = CRC;
           crc_index = 0;
-          end_message = 1;
-          counter++;
-        }else if(messageCount % 8 == 0){
-          start_message = 0;
-          end_message = 1;
           counter++;
         }
       }
@@ -161,7 +159,7 @@ void setup() {
   CORE_PIN13_PADCONFIG |= 0xF9;
   CORE_PIN19_PADCONFIG |= 0xF9;
   Serial.begin(9600);
-  myTimer.begin(blinkLED, 1000000);  // blinkLED to run every 1 seconds
+  txTimer.begin(transmitter, 1000000);  // transmitter to run every 1 seconds
   usage();
 }
 
@@ -241,9 +239,9 @@ void loop() {
           Serial.println(new_baud);
           Serial.println(int(round(1.0L / ((double)new_baud) * 1000000.0L)));
           baud = new_baud;
-          myTimer.end();
-          myTimer.begin(blinkLED, int(round(0.5L / ((double)new_baud) * 1000000.0L)));
-          //myTimer.update(round(1/baud * 1000000));
+          txTimer.end();
+          txTimer.begin(transmitter, int(round(0.5L / ((double)new_baud) * 1000000.0L)));
+          //txTimer.update(round(1/baud * 1000000));
         }
         break;
       case 'm':  // set new message
@@ -263,16 +261,21 @@ void loop() {
         break;
       case 't':
         halt = 1;
-        toggle += 1;
-        if(toggle > 2){
-          toggle = 0;
+
+        if(tx_mode == BLINK){
+          tx_mode = MESSAGE;
+        }else if(tx_mode == MESSAGE){
+          tx_mode = COUNTER;
+        }else if(tx_mode == COUNTER){
+          tx_mode = BLINK;
         }
+
         Serial.println();
-        if (toggle == 0) {
+        if (tx_mode == BLINK) {
           Serial.println("LED blinking...");
-        } else if(toggle == 1){
+        } else if(tx_mode == MESSAGE){
           Serial.println("Message transmit..");
-        } else if(toggle == 2){
+        } else if(tx_mode == COUNTER){
           Serial.println("Counter transmit..");
           counter = 48;
         }
