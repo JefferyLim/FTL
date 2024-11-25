@@ -13,10 +13,12 @@
 #define DIR_PIN        6
 
 //Threshold values
-#define SENSOR_DIF_THRESH 100
+#define SENSOR_DIF_THRESH 200
+#define SENSOR_SMALL_THRESH 50
+#define SENSOR_BIG_THRESH 200
 
 #define SENSOR_ON_THRESH 400 // Sensor detecting
-#define SENSOR_OFF_THRESH 1000 // Sensor not detecting
+#define SENSOR_OFF_THRESH 800 // Sensor not detecting
 
 #define SAMPLING_FREQ 5000 // Hz
 // Convert Sampling Frequency (Hz) to period (us)
@@ -26,8 +28,8 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 
 #define MOVEMENT_FREQ 50
 
-//PRINT_SAMPLE, PRINT_RAW, PRINT_BIT, PRINT_CHAR, PRINT_NONE
-#define PRINT_NONE
+//PRINT_SAMPLE, PRINT_BIT, PRINT_CHAR, PRINT_SCAN, PRINT_NONE
+#define PRINT_CHAR
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
@@ -73,7 +75,7 @@ enum message_state{
 tracking_state track_state = SCANNING;
 position_state pos_state;
 message_state msg_state = START;
-receiver_state rcv_state = LOST;
+receiver_state rcv_state = INIT;
 
 void setup() {
   pinMode(left_pin, INPUT);
@@ -172,7 +174,7 @@ void read_sensors() { //Read analog sensor input
     dataset.bit = false;
     dataset.bit_confidence = true;
   }else{
-    dataset.bit = true;
+    dataset.bit = false;
     dataset.bit_confidence = false;
   }
 
@@ -180,28 +182,20 @@ void read_sensors() { //Read analog sensor input
   left_mid_dif = dataset.left - dataset.mid;
   mid_right_dif = dataset.mid - dataset.right;
 
-
   if(dataset.left > 1000 && dataset.mid > 1000 && dataset.right > 1000){
     dataset.position = UNKNOWN;
   }else{
-
-    if(abs(edge_dif - left_mid_dif) < SENSOR_DIF_THRESH){ //If left of diodes
-      dataset.position = LEFT;
+    
+    dataset.position = UNKNOWN;
+    if(dataset.mid < dataset.left && dataset.mid < dataset.right){
+      dataset.position = MID; 
     }
 
-    if(edge_dif < 0 && mid_right_dif < 0){ //If between mid and left diodes
-      dataset.position = MID_LEFT;
+    if(dataset.left < dataset.mid && dataset.left < dataset.right){
+      dataset.position = LEFT; 
     }
 
-    if(abs(edge_dif) < abs(left_mid_dif) && abs(edge_dif) < abs(mid_right_dif)){ //iF on mid diode
-      dataset.position = MID;
-    }
-
-    if(edge_dif > 0 && left_mid_dif > 0){  //If between mid and right diodes
-      dataset.position = MID_RIGHT;
-    }
-
-    if(abs(edge_dif - mid_right_dif) < SENSOR_DIF_THRESH && dataset.right < dataset.left){ //If right of diodes
+    if(dataset.right < dataset.mid && dataset.right < dataset.left){
       dataset.position = RIGHT;
     }
   }
@@ -213,84 +207,8 @@ void read_sensors() { //Read analog sensor input
   end = micros();
 }
 
-void find_position(){ //Determine position of transmitter
-//   //Difference calculations
-//   edge_dif = left - right;
-//   left_mid_dif = left - mid;
-//   mid_right_dif = mid - right;
-
-//   if(left > SENSOR_THRESH && mid > SENSOR_THRESH && right > SENSOR_THRESH){ //If no good signal
-//     track_state = SCANNING; 
-//   }else{
-//     track_state = LOCKED;
-//     if(abs(edge_dif - left_mid_dif) < SENSOR_DIF_THRESH){ //If left of diodes
-//       pos_state = LEFT;
-//     }
-
-//     if(edge_dif < 0 && mid_right_dif < 0){ //If between mid and left diodes
-//       pos_state = MID_LEFT;
-//     }
-
-//     if(abs(edge_dif) < abs(left_mid_dif) && abs(edge_dif) < abs(mid_right_dif)){ //iF on mid diode
-//       pos_state = MID;
-//     }
-
-//     if(edge_dif > 0 && left_mid_dif > 0){  //If between mid and right diodes
-//       pos_state = MID_RIGHT;
-//     }
-
-//     if(abs(edge_dif - mid_right_dif) < SENSOR_DIF_THRESH && right < left){ //If right of diodes
-//       pos_state = RIGHT;
-//     }
-//   }
-
-  //Print states
-  // if(track_state == LOCKED){
-  //   switch (pos_state) {
-  //     case LEFT:
-  //       Serial.println("LEFT");
-  //       break;
-  //     case MID_LEFT:
-  //       Serial.println("MID_LEFT");
-  //       break;
-  //     case MID:
-  //       Serial.println("MID");
-  //       break;
-  //     case MID_RIGHT:
-  //       Serial.println("MID_RIGHT");
-  //       break;
-  //     case RIGHT:
-  //       Serial.println("RIGHT");
-  //       break;
-  //     default:
-  //       Serial.println("Unknown state");
-  //       break;
-  //   }
-  // }else{
-  //   Serial.println("Scanning");
-  // }
-  // Serial.print(left);
-  // Serial.print(" | ");
-  // Serial.print(mid);
-  // Serial.print(" | ");
-  // Serial.println(right);
-  // LEFT: -x -x 0
-  // MIDL - ? -
-  // MID - + -
-  // MIDR + + ?
-  // RIGHT: + 0 +
-
-
-  // Serial.print(edge_dif);
-  // Serial.print(" | ");
-  // Serial.print(left_mid_dif);
-  // Serial.print(" | ");
-  // Serial.println(mid_right_dif);
-}
-
 // Print function for printing the photodiode struct
 void print_photodiode_struct(struct photodiode_array input){
-
   Serial.print(input.left);
   Serial.print(" | ");
   Serial.print(input.mid);
@@ -301,8 +219,11 @@ void print_photodiode_struct(struct photodiode_array input){
   Serial.print(" | ");
   Serial.print(input.bit_confidence );
   Serial.print(" | ");
+  printPosition(input.position);
+}
 
-  switch (input.position) {
+void printPosition(int input){
+  switch (input) {
     case LEFT:
       Serial.println("LEFT");
       break;
@@ -323,7 +244,6 @@ void print_photodiode_struct(struct photodiode_array input){
       break;
   }
 }
-
 int bitShift = 0;
 void messageParse(){
   struct photodiode_array adcValues;
@@ -337,7 +257,7 @@ void messageParse(){
 
   // If we are in a "LOST" state... try and find presence of a signal...
   // A presence of a signal is 5 '1's or IR LED ON 
-  if(rcv_state == LOST){
+  if(rcv_state == LOST || rcv_state == INIT){
     for(int i = 0; i < 5; i++){
       // Look at the next 5 values
       bitBuffer.peek(adcValues, i);
@@ -388,7 +308,7 @@ void messageParse(){
       if(msg_state == START) {
         missingStartCounter++;
         // If we dont' find the start within 1 second, then we exit SYNCH
-        if(missingStartCounter > SAMPLING_FREQ){
+        if(missingStartCounter > SAMPLING_FREQ/10){
           Serial.println("Can't find start bit...");
           messageBuffer.clear();
           missingStartCounter = 0;
@@ -515,6 +435,7 @@ void setSpeed(int speed)
 }
 
 volatile position_state previous_position = MID;
+volatile position_state last_known_state = MID;
 int current_speed = 0;
 
 void pwm_control(struct photodiode_array input){
@@ -571,9 +492,23 @@ void pwm_control(struct photodiode_array input){
         current_speed = 1000;
       }
       break;
-    default:
-      current_speed = 0;
+    case UNKNOWN:
+      if(rcv_state == LOST){
+        //printPosition(last_known_state);
+        if(last_known_state == RIGHT || last_known_state == MID_RIGHT){
+          current_speed = 500;
+        }else if(last_known_state == LEFT || last_known_state == MID_LEFT){
+          current_speed = -500;
+        }
+      }
+
       break;
+    default:
+      break;
+  }
+
+  if(previous_position != UNKNOWN){
+    last_known_state = previous_position;
   }
 
   previous_position = input.position;
@@ -581,7 +516,7 @@ void pwm_control(struct photodiode_array input){
   setSpeed(current_speed);
   prev_speed = current_speed;
 
-  Serial.println(current_speed);
+
 }
 
 
