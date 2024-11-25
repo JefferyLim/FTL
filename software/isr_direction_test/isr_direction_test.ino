@@ -24,10 +24,10 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 
 #define SAMPLING_RATIO 10 // SAMPLING_FREQ/TRANSMIT_FREQ
 
-#define MOVEMENT_FREQ 100
+#define MOVEMENT_FREQ 50
 
 //PRINT_SAMPLE, PRINT_RAW, PRINT_BIT, PRINT_CHAR, PRINT_NONE
-#define PRINT_SAMPLE 
+#define PRINT_NONE
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
@@ -514,24 +514,25 @@ void setSpeed(int speed)
   }
 }
 
+volatile position_state previous_position = MID;
+int current_speed = 0;
+
 void pwm_control(struct photodiode_array input){
-  int current_speed = 0;
   static int prev_speed;
-  // static pos_state previous_position = MID;
   // static int left_speed;
   // static int right_speed;
 
   
   switch (input.position) {
     case LEFT:
-      if(prev_speed <= -1000){
+      if(previous_position == LEFT){
         current_speed -= 100;
       }else{
         current_speed = -1000;
       }
       break;
     case MID_LEFT:
-      current_speed = = -500
+      current_speed = -500;
       break;
     case MID:
       current_speed = 0;
@@ -540,7 +541,7 @@ void pwm_control(struct photodiode_array input){
       current_speed = 500;
       break;
     case RIGHT:
-      if(prev_speed >= 1000){
+      if(previous_position == RIGHT){
         current_speed += 100;
       }else{
         current_speed = 1000;
@@ -551,8 +552,12 @@ void pwm_control(struct photodiode_array input){
       break;
   }
 
-  setSpeed(current_speed);
   previous_position = input.position;
+
+  setSpeed(current_speed);
+  prev_speed = current_speed;
+
+  Serial.println(current_speed);
 }
 
 
