@@ -1,6 +1,6 @@
 #include "CRC8.h"
 
-#define _PWM_LOGLEVEL_        4 
+#define _PWM_LOGLEVEL_        0
 
 #include <ADC.h>
 #include <RingBuf.h>
@@ -27,7 +27,7 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 #define MOVEMENT_FREQ 100
 
 //PRINT_SAMPLE, PRINT_RAW, PRINT_BIT, PRINT_CHAR, PRINT_NONE
-#define PRINT_BIT 
+#define PRINT_SAMPLE 
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
@@ -56,6 +56,7 @@ enum position_state{
 };
 
 enum receiver_state{
+  INIT,
   SYNCH,
   LOST,
 };
@@ -514,26 +515,44 @@ void setSpeed(int speed)
 }
 
 void pwm_control(struct photodiode_array input){
+  int current_speed = 0;
+  static int prev_speed;
+  // static pos_state previous_position = MID;
+  // static int left_speed;
+  // static int right_speed;
+
+  
   switch (input.position) {
     case LEFT:
-      setSpeed(1000);
+      if(prev_speed <= -1000){
+        current_speed -= 100;
+      }else{
+        current_speed = -1000;
+      }
       break;
     case MID_LEFT:
-      setSpeed(500);
+      current_speed = = -500
       break;
     case MID:
-      setSpeed(0);
+      current_speed = 0;
       break;
     case MID_RIGHT:
-      setSpeed(-500);
+      current_speed = 500;
       break;
     case RIGHT:
-      setSpeed(1000);
+      if(prev_speed >= 1000){
+        current_speed += 100;
+      }else{
+        current_speed = 1000;
+      }
       break;
     default:
-      setSpeed(0);
+      current_speed = 0;
       break;
   }
+
+  setSpeed(current_speed);
+  previous_position = input.position;
 }
 
 
@@ -551,6 +570,7 @@ void loop() {
     movement_counter++;
     if(movement_counter == MOVEMENT_FREQ){
       pwm_control(adcValues);
+      movement_counter = 0;
     }
 
     #ifdef PRINT_SAMPLE
