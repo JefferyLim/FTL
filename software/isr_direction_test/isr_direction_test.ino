@@ -526,23 +526,47 @@ void pwm_control(struct photodiode_array input){
   switch (input.position) {
     case LEFT:
       if(previous_position == LEFT){
-        current_speed -= 100;
+        if(current_speed <= -3000){
+          current_speed = -3000;
+        }else{
+          current_speed -= 100;
+        }
       }else{
         current_speed = -1000;
       }
       break;
     case MID_LEFT:
-      current_speed = -500;
+      if(previous_position == LEFT){
+        if(current_speed >= -500){
+          current_speed = -500;
+        }else{
+          current_speed += 200;
+        }
+      }else{
+        current_speed = -500;
+      }
       break;
     case MID:
       current_speed = 0;
       break;
     case MID_RIGHT:
-      current_speed = 500;
+      if(previous_position == RIGHT){
+        if(current_speed <= 500){
+          current_speed = 500;
+        }else{
+          current_speed -= 200;
+        }
+      }else{
+        current_speed = 500;
+      }
       break;
     case RIGHT:
       if(previous_position == RIGHT){
-        current_speed += 100;
+        if(current_speed >= 3000){
+          current_speed = 3000;
+        }else{
+          current_speed += 100;
+        }
       }else{
         current_speed = 1000;
       }
