@@ -10,8 +10,8 @@ const int  M0 = 25;
 const int M1 = 27;
 const int M2 = 29;
 const int STDBY =  33;
-const int STEP = 35;
-const int DIR = 37;
+const int STEP = 7;
+const int DIR = 6;
 
 
 // variables will  change:
@@ -26,7 +26,7 @@ int m0 = 0;
 int m1 = 0;
 int  m2 = 0;
 int dir= 0;
-unsigned long tempMillis;  di PWM
+unsigned long tempMillis;  //di PWM
 byte caratteri; 
 byte  tempChar; 
 
@@ -125,19 +125,18 @@ int stepper (int swpulse, int m0, int m1, int  m2, int dir, int dur){
   if (dir==0)  {digitalWrite(DIR, LOW);} else {digitalWrite(DIR, HIGH);}
   pinMode(EN, INPUT_PULLUP);  // output stage  on
   delay(10);
-  if (digitalRead(EN)==LOW)  {Serial.println(F("  VM UVLO condition: check the VM power supply ")); }
-  while (digitalRead(EN)==LOW)  {;}
   // STEP GENERATOR
   for ( int i = 0; i < swpulse; i++) {
-    digitalWrite(STEP,  HIGH);
-    delay(dur);
+    Serial.println(i);
+    digitalWdurrite(STEP,  HIGH);
+    delay();
     digitalWrite(STEP, LOW); 
     delay(dur);   
   if (digitalRead(EN)==LOW)  {Serial.println(F("fault  ")); i=swpulse; }
   }
   pinMode(EN, OUTPUT);  
   digitalWrite(EN, LOW); // output stage off
-  return;
+  return 1;
 }
   
   int readnumb (){
