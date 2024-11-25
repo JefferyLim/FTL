@@ -1,10 +1,18 @@
 #include "CRC8.h"
 
-//Threshold values
+#define _PWM_LOGLEVEL_        4 
+
 #include <ADC.h>
 #include <RingBuf.h>
 #include <IntervalTimer.h>
+#include <Teensy_PWM.h>
 
+#define USING_FLEX_TIMERS      true //Using flex timers for HW PWM
+
+#define STEP_PIN       7 //PWM Pins
+#define DIR_PIN        6
+
+//Threshold values
 #define SENSOR_DIF_THRESH 100
 
 #define SENSOR_ON_THRESH 400 // Sensor detecting
@@ -16,6 +24,7 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 
 #define SAMPLING_RATIO 10 // SAMPLING_FREQ/TRANSMIT_FREQ
 
+#define MOVEMENT_FREQ 100
 
 //PRINT_SAMPLE, PRINT_RAW, PRINT_BIT, PRINT_CHAR, PRINT_NONE
 #define PRINT_BIT 
@@ -29,6 +38,12 @@ const int mid_pin = A1;
 const int right_pin = A2;
 
 ADC *adc = new ADC(); 
+
+//PWM Values:
+float frequency;
+float dutyCycle;
+
+Teensy_PWM* stepper; //Stepper object
 
 //States
 enum tracking_state{
@@ -83,6 +98,18 @@ void setup() {
   
   sensor_readTimer.begin(read_sensors,(int)sampling_period); //Read senors every 0.01 seconds
   //positionTimer.begin(find_position,100000); //Process every 0.1 seconds
+
+  //// PWM ////
+  pinMode(DIR_PIN, OUTPUT);
+  #if USING_FLEX_TIMERS
+    Serial.print(F("\nStarting PWM_StepperControl using FlexTimers on "));
+  #else
+    Serial.print(F("\nStarting PWM_StepperControl using QuadTimers on "));
+  #endif
+
+  stepper = new Teensy_PWM(STEP_PIN, 500, 0);
+  /////
+
 }
 
 // Created photodiode array struct
@@ -124,7 +151,7 @@ volatile int end = 0;
 
 void read_sensors() { //Read analog sensor input
   start = micros();
-  struct photodiode_array dataset = {0};
+  struct photodiode_array dataset = {0}; 
 
   //difference variables
   int edge_dif;
@@ -471,6 +498,47 @@ void messageParse(){
   }
 }
 
+void setSpeed(int speed)
+{
+  if (speed == 0)
+  {
+    // Use DC = 0 to stop stepper
+    stepper->setPWM(STEP_PIN, 500, 0);
+  }
+  else
+  {
+    //  Set the frequency of the PWM output and a duty cycle of 50%
+    digitalWrite(DIR_PIN, (speed < 0));
+    stepper->setPWM(STEP_PIN, abs(speed), 50);
+  }
+}
+
+void pwm_control(struct photodiode_array input){
+  switch (input.position) {
+    case LEFT:
+      setSpeed(1000);
+      break;
+    case MID_LEFT:
+      setSpeed(500);
+      break;
+    case MID:
+      setSpeed(0);
+      break;
+    case MID_RIGHT:
+      setSpeed(-500);
+      break;
+    case RIGHT:
+      setSpeed(1000);
+      break;
+    default:
+      setSpeed(0);
+      break;
+  }
+}
+
+
+int movement_counter = 0;
+
 void loop() {
   struct photodiode_array adcValues;
 
@@ -480,6 +548,11 @@ void loop() {
 
   // Attempt to pop ADC values
   if(adcBuffer.pop(adcValues)){
+    movement_counter++;
+    if(movement_counter == MOVEMENT_FREQ){
+      pwm_control(adcValues);
+    }
+
     #ifdef PRINT_SAMPLE
       print_photodiode_struct(adcValues);
     #endif
