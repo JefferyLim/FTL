@@ -160,6 +160,3 @@ int stepper (int swpulse, int m0, int m1, int  m2, int dir, int dur){
           if (lettura >= 500) {lettura=500;}
   return (lettura);
 }
-
-
-[/code]S
