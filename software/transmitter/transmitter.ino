@@ -14,7 +14,7 @@ int counter = 48; //ascii character
 
 // Controls
 volatile int baud = 9600;
-volatile bool halt = 0;
+volatile bool halt = 1;
 
 // Transmit variables
 int ledState = LOW;
