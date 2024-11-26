@@ -9,6 +9,9 @@
 
 #define USING_FLEX_TIMERS      true //Using flex timers for HW PWM
 
+#define M2  9
+#define M1  10
+#define M0  11
 #define STEP_PIN       7 //PWM Pins
 #define DIR_PIN        6
 
@@ -26,10 +29,10 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 
 #define SAMPLING_RATIO 10 // SAMPLING_FREQ/TRANSMIT_FREQ
 
-#define MOVEMENT_FREQ 50
+#define MOVEMENT_FREQ 1000
 
 //PRINT_SAMPLE, PRINT_BIT, PRINT_CHAR, PRINT_SCAN, PRINT_NONE
-#define PRINT_CHAR
+#define PRINT_SAMPLE
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
@@ -104,6 +107,9 @@ void setup() {
 
   //// PWM ////
   pinMode(DIR_PIN, OUTPUT);
+  pinMode(M0, OUTPUT);
+  pinMode(M1, OUTPUT);
+  pinMode(M2, OUTPUT);
   #if USING_FLEX_TIMERS
     Serial.print(F("\nStarting PWM_StepperControl using FlexTimers on "));
   #else
@@ -191,12 +197,19 @@ void read_sensors() { //Read analog sensor input
       dataset.position = MID; 
     }
 
+
     if(dataset.left < dataset.mid && dataset.left < dataset.right){
       dataset.position = LEFT; 
+      if(abs(dataset.mid - dataset.left) < SENSOR_SMALL_THRESH){
+        dataset.position = MID_LEFT;
+      }
     }
 
     if(dataset.right < dataset.mid && dataset.right < dataset.left){
       dataset.position = RIGHT;
+      if(abs(dataset.mid - dataset.right) < SENSOR_SMALL_THRESH){
+        dataset.position = MID_RIGHT;
+      }
     }
   }
 
@@ -424,7 +437,7 @@ void setSpeed(int speed)
   if (speed == 0)
   {
     // Use DC = 0 to stop stepper
-    stepper->setPWM(STEP_PIN, 500, 0);
+    stepper->setPWM(STEP_PIN, abs(speed), 0);
   }
   else
   {
@@ -438,70 +451,53 @@ volatile position_state previous_position = MID;
 volatile position_state last_known_state = MID;
 int current_speed = 0;
 
+
+// 0 -> full step
+// 1 -> 1/2 step
+// 2 -> 1/4 step
+//..
+// 7 0 -> 1/256 step
+void stepMode(int mode){
+  digitalWrite(M0, bitRead(mode, 0));
+  digitalWrite(M1, bitRead(mode, 1));
+  digitalWrite(M2, bitRead(mode, 2));
+}
+
 void pwm_control(struct photodiode_array input){
   static int prev_speed;
   // static int left_speed;
   // static int right_speed;
 
-  
+  stepMode(4);
   switch (input.position) {
     case LEFT:
-      if(previous_position == LEFT){
-        if(current_speed <= -3000){
-          current_speed = -3000;
-        }else{
-          current_speed -= 100;
-        }
-      }else{
-        current_speed = -1000;
-      }
+      stepMode(3);
+      current_speed = -8000;
       break;
     case MID_LEFT:
-      if(previous_position == LEFT){
-        if(current_speed >= -500){
-          current_speed = -500;
-        }else{
-          current_speed += 200;
-        }
-      }else{
-        current_speed = -500;
-      }
+      current_speed = -8000;
       break;
     case MID:
-      current_speed = 0;
+      if(input.mid < input.left && input.mid < input.right){
+        current_speed = 0;
+      }
       break;
     case MID_RIGHT:
-      if(previous_position == RIGHT){
-        if(current_speed <= 500){
-          current_speed = 500;
-        }else{
-          current_speed -= 200;
-        }
-      }else{
-        current_speed = 500;
-      }
+      current_speed = 8000;
       break;
     case RIGHT:
-      if(previous_position == RIGHT){
-        if(current_speed >= 3000){
-          current_speed = 3000;
-        }else{
-          current_speed += 100;
-        }
-      }else{
-        current_speed = 1000;
-      }
+      stepMode(3);
+      current_speed = 8000;
       break;
     case UNKNOWN:
       if(rcv_state == LOST){
         //printPosition(last_known_state);
         if(last_known_state == RIGHT || last_known_state == MID_RIGHT){
-          current_speed = 500;
+          current_speed = 8000;
         }else if(last_known_state == LEFT || last_known_state == MID_LEFT){
-          current_speed = -500;
+          current_speed = -8000;
         }
       }
-
       break;
     default:
       break;
@@ -515,8 +511,6 @@ void pwm_control(struct photodiode_array input){
 
   setSpeed(current_speed);
   prev_speed = current_speed;
-
-
 }
 
 
@@ -551,49 +545,6 @@ void loop() {
       messageParse();
     }
     #endif
-    //Serial.println(current_bit);
-    // message_buf[i] = current_bit;
-    // i++;
   }
 
-  // if(i == 1024){
-  //   sensor_readTimer.end();
-  //   adcBuffer.clear();
-  //   //char ascii_string[128];
-  //   //int ascii_index = 0;
-  //   for(int j = 0; j < 1024; j++){
-  //     Serial.print(message_buf[j]);
-  //   }
-  //   // for(int j = 7; j < 1024; j = j + 8){
-  //   //   //char temp_byte;
-  //   //   int temp_sum = 0;
-  //   //   int multiplier = 0;
-  //   //   for(int k = j; k < j + 7; k++){
-  //   //     temp_sum += message_buf[k] * (1 << multiplier++);
-  //   //   }
-  //   //   ascii_string[ascii_index] = (char)temp_sum;
-  //   //   ascii_index++;
-  //   // }
-
-  //   // for(int f = 0; f < 128; f++){
-  //   //     if(ascii_string[f] == 0){
-  //   //       Serial.print("NULL");
-  //   //     }else{
-  //   //       Serial.print(ascii_string[f]);
-  //   //     }
-  //   // }
-  //   Serial.println();
-  //   delay(10000);
-  //   sensor_readTimer.begin(read_sensors,(int)sampling_period);
-  // }
-
-  //edge_difference = val0 - val2;
-  //Serial.println(edge_difference);
-  //if(edge_difference > 0){
-  //  Serial.println("Move left!");
-  //}else if(edge_difference < 0){
-  //  Serial.println("Move right!");
-  //}else{
-  //  Serial.println("Stay still!");
-  //}
 }
