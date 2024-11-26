@@ -32,7 +32,7 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 #define MOVEMENT_FREQ 1000
 
 //PRINT_SAMPLE, PRINT_BIT, PRINT_CHAR, PRINT_SCAN, PRINT_NONE
-#define PRINT_SAMPLE
+#define PRINT_CHAR
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
@@ -463,6 +463,7 @@ void stepMode(int mode){
   digitalWrite(M2, bitRead(mode, 2));
 }
 
+#define SPEED 12000
 void pwm_control(struct photodiode_array input){
   static int prev_speed;
   // static int left_speed;
@@ -471,11 +472,12 @@ void pwm_control(struct photodiode_array input){
   stepMode(4);
   switch (input.position) {
     case LEFT:
-      stepMode(3);
-      current_speed = -8000;
+      current_speed = -SPEED;
       break;
     case MID_LEFT:
-      current_speed = -8000;
+      stepMode(6);
+  
+      current_speed = -SPEED;
       break;
     case MID:
       if(input.mid < input.left && input.mid < input.right){
@@ -483,19 +485,20 @@ void pwm_control(struct photodiode_array input){
       }
       break;
     case MID_RIGHT:
-      current_speed = 8000;
+      stepMode(6);
+  
+      current_speed = SPEED;
       break;
     case RIGHT:
-      stepMode(3);
-      current_speed = 8000;
+      current_speed = SPEED;
       break;
     case UNKNOWN:
       if(rcv_state == LOST){
         //printPosition(last_known_state);
         if(last_known_state == RIGHT || last_known_state == MID_RIGHT){
-          current_speed = 8000;
+          current_speed = SPEED;
         }else if(last_known_state == LEFT || last_known_state == MID_LEFT){
-          current_speed = -8000;
+          current_speed = -SPEED;
         }
       }
       break;
