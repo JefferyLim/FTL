@@ -20,12 +20,12 @@
 #define SENSOR_SMALL_THRESH 50
 #define SENSOR_BIG_THRESH 200
 
-#define SENSOR_ON_THRESH 400 // Sensor detecting for data
-#define SENSOR_OFF_THRESH 800 // Sensor not detecting for data
+#define SENSOR_ON_THRESH 3400 // Sensor detecting for data
+#define SENSOR_OFF_THRESH 3500 // Sensor not detecting for data
 
-#define SENSOR_ABS_THRESH 950 // Sensor not detecting for motor control
+#define SENSOR_ABS_THRESH 3600 // Sensor not detecting for motor control
 
-#define SAMPLING_FREQ 5000 // Hz
+#define SAMPLING_FREQ 10000 // Hz
 // Convert Sampling Frequency (Hz) to period (us)
 double sampling_period = 1000000/SAMPLING_FREQ; // us
 
@@ -91,13 +91,13 @@ void setup() {
 
   ///// ADC0 ////
   adc->adc0->setAveraging(4); // set number of averages
-  adc->adc0->setResolution(10); // set bits of resolution
+  adc->adc0->setResolution(16); // set bits of resolution
   adc->adc0->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED); // change the conversion speed
   adc->adc0->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED); // change the sampling speed
 
   ///// ADC1 ////
   adc->adc1->setAveraging(4); // set number of averages
-  adc->adc1->setResolution(10); // set bits of resolution
+  adc->adc1->setResolution(16); // set bits of resolution
   adc->adc1->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED); // change the conversion speed
   adc->adc1->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED); // change the sampling speed
 
@@ -193,12 +193,10 @@ void read_sensors() { //Read analog sensor input
 if(dataset.left > SENSOR_ABS_THRESH && dataset.mid > SENSOR_ABS_THRESH && dataset.right > SENSOR_OFF_THRESH){
     dataset.position = UNKNOWN;
   }else{
-    
-    dataset.position = UNKNOWN;
+
     if(dataset.mid < dataset.left && dataset.mid < dataset.right){
       dataset.position = MID; 
     }
-
 
     if(dataset.left < dataset.mid && dataset.left < dataset.right){
       dataset.position = LEFT; 
@@ -220,6 +218,7 @@ if(dataset.left > SENSOR_ABS_THRESH && dataset.mid > SENSOR_ABS_THRESH && datase
   }
 
   end = micros();
+  //Serial.println(end - start);
 }
 
 // Print function for printing the photodiode struct
@@ -379,11 +378,12 @@ void messageParse(){
           msg_state = CRC;
           bitShift = 0;
         
-        
           #ifdef PRINT_CHAR
-          Serial.print(messageByteCount);
-          Serial.print(": ");
-          Serial.print((char)receivedByte);
+          if(receivedByte == 4){
+            Serial.println();
+          }else{
+            Serial.print((char)receivedByte);
+          }
           #endif
           
           #ifdef PRINT_BIT
@@ -412,8 +412,6 @@ void messageParse(){
             Serial.print(", Expected: ");
             Serial.print(crccode, HEX);
             Serial.println(")");
-          }else{
-            Serial.println();
           }
           crcByte = 0;
           crc.restart(); //remove all previous letters from the CRC calculation
@@ -478,7 +476,6 @@ void pwm_control(struct photodiode_array input){
       break;
     case MID_LEFT:
       stepMode(0);
-  
       current_speed = -SPEED;
       break;
     case MID:
@@ -488,7 +485,6 @@ void pwm_control(struct photodiode_array input){
       break;
     case MID_RIGHT:
       stepMode(0);
-  
       current_speed = SPEED;
       break;
     case RIGHT:
@@ -500,6 +496,8 @@ void pwm_control(struct photodiode_array input){
         if(last_known_state == RIGHT || last_known_state == MID_RIGHT){
           current_speed = SPEED;
         }else if(last_known_state == LEFT || last_known_state == MID_LEFT){
+          current_speed = -SPEED;
+        }else if(last_known_state == MID){
           current_speed = -SPEED;
         }
       }
