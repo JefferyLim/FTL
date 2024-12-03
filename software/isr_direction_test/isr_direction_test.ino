@@ -34,7 +34,7 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 #define MOVEMENT_FREQ 1000
  
 //PRINT_SAMPLE, PRINT_BIT, PRINT_CHAR, PRINT_SCAN, PRINT_NONE
-#define PRINT_CHAR
+#define PRINT_SAMPLE
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
@@ -51,6 +51,9 @@ float frequency;
 float dutyCycle;
 
 Teensy_PWM* stepper; //Stepper object
+
+
+const int ledPin = LED_BUILTIN; // the pin with a LED
 
 //States
 enum tracking_state{
@@ -86,6 +89,7 @@ void setup() {
   pinMode(left_pin, INPUT);
   pinMode(mid_pin, INPUT);
   pinMode(right_pin, INPUT);
+  pinMode(ledPin, OUTPUT);
 
   Serial.begin(115200);
 
@@ -136,9 +140,9 @@ struct photodiode_array{
 };
 
 // RingBuffers
-RingBuf<photodiode_array, 500> adcBuffer; // for raw ADC outputs + other metrics
-RingBuf<photodiode_array, 500> bitBuffer; // extra buffer before message parsing
-RingBuf<int, 500> messageBuffer; // buffer for collecting bits for message parsing
+RingBuf<photodiode_array, 1024> adcBuffer; // for raw ADC outputs + other metrics
+RingBuf<photodiode_array, 1024> bitBuffer; // extra buffer before message parsing
+RingBuf<int, 1024> messageBuffer; // buffer for collecting bits for message parsing
 
 CRC8 crc;
 
@@ -160,8 +164,13 @@ volatile bool bufferOverflow = 0;
 volatile int start = 0;
 volatile int end = 0;
 
+// Position/Motor
+volatile position_state previous_position = MID;
+volatile position_state last_known_state = MID;
+int current_speed = 0;
+
 void read_sensors() { //Read analog sensor input
-  start = micros();
+  //start = micros();
   struct photodiode_array dataset = {0}; 
 
   //difference variables
@@ -217,7 +226,7 @@ if(dataset.left > SENSOR_ABS_THRESH && dataset.mid > SENSOR_ABS_THRESH && datase
     Serial.println("ERROR: Can't push to buffer");
   }
 
-  end = micros();
+  //end = micros();
   //Serial.println(end - start);
 }
 
@@ -234,32 +243,38 @@ void print_photodiode_struct(struct photodiode_array input){
   Serial.print(input.bit_confidence );
   Serial.print(" | ");
   printPosition(input.position);
+  Serial.print(" | ");
+  printPosition(last_known_state);
+  Serial.println();
 }
 
 void printPosition(int input){
   switch (input) {
     case LEFT:
-      Serial.println("LEFT");
+      Serial.print("LEFT");
       break;
     case MID_LEFT:
-      Serial.println("MID_LEFT");
+      Serial.print("MID_LEFT");
       break;
     case MID:
-      Serial.println("MID");
+      Serial.print("MID");
       break;
     case MID_RIGHT:
-      Serial.println("MID_RIGHT");
+      Serial.print("MID_RIGHT");
       break;
     case RIGHT:
-      Serial.println("RIGHT");
+      Serial.print("RIGHT");
       break;
     default:
-      Serial.println("UNKNOWN");
+      Serial.print("UNKNOWN");
       break;
   }
 }
+
 int bitShift = 0;
 void messageParse(){
+  
+  //start = micros();
   struct photodiode_array adcValues;
   int bitCount = 0;
   int receivedBit = 0;
@@ -272,6 +287,8 @@ void messageParse(){
   // If we are in a "LOST" state... try and find presence of a signal...
   // A presence of a signal is 5 '1's or IR LED ON 
   if(rcv_state == LOST || rcv_state == INIT){
+    
+    digitalWriteFast(ledPin, 1);
     for(int i = 0; i < 5; i++){
       // Look at the next 5 values
       bitBuffer.peek(adcValues, i);
@@ -295,6 +312,7 @@ void messageParse(){
       bitBuffer.pop(adcValues);
     }
   }else if(rcv_state == SYNCH){
+    digitalWriteFast(ledPin, 0);
     // Begin counting bits
     for(int i = 0; i < 5; i++){
       bitBuffer.pop(adcValues);
@@ -430,6 +448,8 @@ void messageParse(){
       }
     }
   }
+  //end = micros();
+  //Serial.println(end - start);
 }
 
 void setSpeed(int speed)
@@ -447,9 +467,6 @@ void setSpeed(int speed)
   }
 }
 
-volatile position_state previous_position = MID;
-volatile position_state last_known_state = MID;
-int current_speed = 0;
 
 
 // 0 -> full step
@@ -463,8 +480,9 @@ void stepMode(int mode){
   digitalWrite(M2, bitRead(mode, 2));
 }
 
-#define SPEED 400
+#define SPEED 800
 void pwm_control(struct photodiode_array input){
+  //start = micros();
   static int prev_speed;
   // static int left_speed;
   // static int right_speed;
@@ -498,6 +516,7 @@ void pwm_control(struct photodiode_array input){
         }else if(last_known_state == LEFT || last_known_state == MID_LEFT){
           current_speed = -SPEED;
         }else if(last_known_state == MID){
+          Serial.println("HI");
           current_speed = -SPEED;
         }
       }
@@ -514,18 +533,19 @@ void pwm_control(struct photodiode_array input){
 
   setSpeed(current_speed);
   prev_speed = current_speed;
+  //end = micros();
+  //Serial.println(end - start);
 }
 
 
 int movement_counter = 0;
-
 void loop() {
+  //start = millis();
   struct photodiode_array adcValues;
 
   if(bufferOverflow){
     Serial.println("ERROR: RingBuffer Overflow");
   }
-
   // Attempt to pop ADC values
   if(adcBuffer.pop(adcValues)){
     movement_counter++;
@@ -538,7 +558,6 @@ void loop() {
       print_photodiode_struct(adcValues);
     #endif
 
-    #ifndef PRINT_SAMPLE
     // Pushing ADC bits to a buffer for messages
     if(!bitBuffer.push(adcValues)){
       Serial.println("ERROR: Can't push to bitBuffer");
@@ -547,7 +566,9 @@ void loop() {
     if(bitBuffer.size() > 5){
       messageParse();
     }
-    #endif
   }
+
+  //end = millis();
+  //Serial.println(end - start);
 
 }
