@@ -20,8 +20,10 @@
 #define SENSOR_SMALL_THRESH 50
 #define SENSOR_BIG_THRESH 200
 
-#define SENSOR_ON_THRESH 400 // Sensor detecting
-#define SENSOR_OFF_THRESH 800 // Sensor not detecting
+#define SENSOR_ON_THRESH 400 // Sensor detecting for data
+#define SENSOR_OFF_THRESH 800 // Sensor not detecting for data
+
+#define SENSOR_ABS_THRESH 950 // Sensor not detecting for motor control
 
 #define SAMPLING_FREQ 5000 // Hz
 // Convert Sampling Frequency (Hz) to period (us)
@@ -30,7 +32,7 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 #define SAMPLING_RATIO 10 // SAMPLING_FREQ/TRANSMIT_FREQ
 
 #define MOVEMENT_FREQ 1000
-
+ 
 //PRINT_SAMPLE, PRINT_BIT, PRINT_CHAR, PRINT_SCAN, PRINT_NONE
 #define PRINT_CHAR
 
@@ -188,7 +190,7 @@ void read_sensors() { //Read analog sensor input
   left_mid_dif = dataset.left - dataset.mid;
   mid_right_dif = dataset.mid - dataset.right;
 
-  if(dataset.left > 1000 && dataset.mid > 1000 && dataset.right > 1000){
+if(dataset.left > SENSOR_ABS_THRESH && dataset.mid > SENSOR_ABS_THRESH && dataset.right > SENSOR_OFF_THRESH){
     dataset.position = UNKNOWN;
   }else{
     
@@ -463,19 +465,19 @@ void stepMode(int mode){
   digitalWrite(M2, bitRead(mode, 2));
 }
 
-#define SPEED 12000
+#define SPEED 400
 void pwm_control(struct photodiode_array input){
   static int prev_speed;
   // static int left_speed;
   // static int right_speed;
 
-  stepMode(4);
+  stepMode(0);
   switch (input.position) {
     case LEFT:
       current_speed = -SPEED;
       break;
     case MID_LEFT:
-      stepMode(6);
+      stepMode(0);
   
       current_speed = -SPEED;
       break;
@@ -485,7 +487,7 @@ void pwm_control(struct photodiode_array input){
       }
       break;
     case MID_RIGHT:
-      stepMode(6);
+      stepMode(0);
   
       current_speed = SPEED;
       break;
