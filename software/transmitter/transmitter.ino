@@ -10,7 +10,8 @@ const int irPin = 2;            // the pin with IR diode
 // messages for transmission
 char* message;
 int messageLength = -1;
-int counter = 48; //ascii character
+int counter = 0; //ascii character
+char count_msg[20];
 
 // Controls
 volatile int baud = 1000;
@@ -70,14 +71,14 @@ void transmitter() {
          char currentByte = 0;
          int currentBit = messageCount % 8;
 
-        if(tx_mode == MESSAGE){
+        if(tx_mode == MESSAGE){  
           currentByte = message[int(floor(messageCount / 8))];
           currentBit = messageCount % 8;
         }else{ // tx_mode == COUNTER
-          if(counter > 57){ //ascii for 9
-            counter = 48; //ascii for 0
-          }
-          currentByte = counter;
+          sprintf(count_msg, "%d%c", counter, 4);
+          messageLength = strlen(count_msg); 
+          currentByte = count_msg[int(floor(messageCount / 8))];
+          currentBit = messageCount % 8;
         } 
         
         #ifdef DEBUG
@@ -103,7 +104,6 @@ void transmitter() {
           crccode = crc.calc();
           tx_state = CRC;
           crc_index = 0;
-          counter++;
         }
       //set LEDs high so resting state is on
       }else if (tx_state == CRC){
@@ -112,8 +112,9 @@ void transmitter() {
           digitalWriteFast(ledPin, HIGH);
           digitalWriteFast(irPin, HIGH);
           tx_state = END;
-          if (messageCount >= messageLength * 8) {
+          if (messageCount >= messageLength * 8) { //end of the message -- NOT BYTE
             messageCount = 0;
+            counter++;
           }
           crc.restart(); //remove all previous letters from the CRC calculation
         }else{
@@ -280,7 +281,7 @@ void loop() {
           Serial.println("Message transmit..");
         } else if(tx_mode == COUNTER){
           Serial.println("Counter transmit..");
-          counter = 48;
+          counter = 0;
         }
         break;
       case '\n':
