@@ -13,7 +13,7 @@ int messageLength = -1;
 int counter = 48; //ascii character
 
 // Controls
-volatile int baud = 9600;
+volatile int baud = 1000;
 volatile bool halt = 1;
 
 // Transmit variables
@@ -160,7 +160,7 @@ void setup() {
   CORE_PIN13_PADCONFIG |= 0xF9;
   CORE_PIN19_PADCONFIG |= 0xF9;
   Serial.begin(9600);
-  txTimer.begin(transmitter, 1000000);  // transmitter to run every 1 seconds
+  txTimer.begin(transmitter, baud);  // transmitter to run every 1 seconds
   usage();
 }
 
@@ -192,6 +192,8 @@ void parseMessage() {
   while (Serial.available() != 0 && i < 100) {
     incomingByte = Serial.read();
     if (incomingByte == '\n') {
+      tempChars[i] = 4;
+      i++;
       break;
     }
     tempChars[i] = incomingByte;
