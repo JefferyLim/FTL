@@ -20,8 +20,8 @@
 #define SENSOR_SMALL_THRESH 50
 #define SENSOR_BIG_THRESH 200
 
-#define SENSOR_ON_THRESH 3400 // Sensor detecting for data
-#define SENSOR_OFF_THRESH 3500 // Sensor not detecting for data
+#define SENSOR_ON_THRESH 3600 // Sensor detecting for data
+#define SENSOR_OFF_THRESH 3800 // Sensor not detecting for data
 
 #define SENSOR_ABS_THRESH 3600 // Sensor not detecting for motor control
 
@@ -29,12 +29,14 @@
 // Convert Sampling Frequency (Hz) to period (us)
 double sampling_period = 1000000/SAMPLING_FREQ; // us
 
-#define SAMPLING_RATIO 10 // SAMPLING_FREQ/TRANSMIT_FREQ
+#define SAMPLING_RATIO 5 // SAMPLING_FREQ/
+#define ON_THRESH 0 // SAMPLING_RATIO - ON_THRESH for 1's
+#define OFF_THRESH 1  // OFF_THRESH for 0's
 
 #define MOVEMENT_FREQ 1000
  
-//PRINT_SAMPLE, PRINT_BIT, PRINT_CHAR, PRINT_SCAN, PRINT_NONE
-#define PRINT_SAMPLE
+//PRINT_SAMPLE, PRINT_RAW, PRINT_BIT, PRINT_CHAR, PRINT_SCAN, PRINT_NONE
+#define PRINT_BIT
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
@@ -185,12 +187,24 @@ void read_sensors() { //Read analog sensor input
   if(dataset.left <= SENSOR_ON_THRESH || dataset.right <= SENSOR_ON_THRESH \
    || dataset.mid <= SENSOR_ON_THRESH){
     dataset.bit = true;
+    
+    #ifdef PRINT_RAW
+    Serial.print(1);
+    #endif
     dataset.bit_confidence = true;
   }else if(dataset.left >= SENSOR_OFF_THRESH && dataset.right >= SENSOR_OFF_THRESH \
     && dataset.mid >= SENSOR_OFF_THRESH) {
     dataset.bit = false;
     dataset.bit_confidence = true;
+    
+    #ifdef PRINT_RAW
+    Serial.print(0);
+    #endif
   }else{
+    
+    #ifdef PRINT_RAW
+    Serial.print(0);
+    #endif
     dataset.bit = false;
     dataset.bit_confidence = false;
   }
@@ -280,7 +294,7 @@ void messageParse(){
   int receivedBit = 0;
 
   // Double check that buffer is >5
-  if(bitBuffer.size() < 5){
+  if(bitBuffer.size() < SAMPLING_RATIO){
     return;
   }
 
@@ -289,7 +303,7 @@ void messageParse(){
   if(rcv_state == LOST || rcv_state == INIT){
     
     digitalWriteFast(ledPin, 1);
-    for(int i = 0; i < 5; i++){
+    for(int i = 0; i < SAMPLING_RATIO; i++){
       // Look at the next 5 values
       bitBuffer.peek(adcValues, i);
       // Note, that if the bit confidence is high, then we can use the these samples
@@ -304,8 +318,10 @@ void messageParse(){
   
     // If we find at least 4 '1' samples, lets start parsing
     // Move from LOST -> SYNCH
-    if(bitCount >= 4){
+    if(bitCount >= (SAMPLING_RATIO - ON_THRESH)){
+      #ifdef PRINT_CHAR
       Serial.println("Sync");
+      #endif
       rcv_state = SYNCH;
       bitCount = 0;
     }else{
@@ -314,22 +330,26 @@ void messageParse(){
   }else if(rcv_state == SYNCH){
     digitalWriteFast(ledPin, 0);
     // Begin counting bits
-    for(int i = 0; i < 5; i++){
+    for(int i = 0; i < SAMPLING_RATIO; i++){
       bitBuffer.pop(adcValues);
       bitCount += adcValues.bit;
     }
 
     // Do a majority vote
     // Anything inbetween is ambiguous, and we will exit SYNCH
-    if(bitCount >= 4){
+    if(bitCount >= SAMPLING_RATIO - ON_THRESH){
       messageBuffer.push(1);
-    }else if(bitCount <= 1){
+    }else if(bitCount <= OFF_THRESH){
       messageBuffer.push(0);
     }else{
+      #ifdef PRINT_CHAR
+      Serial.println();
+      Serial.print("Ambiguous bits: ");
+      Serial.print(bitCount);
+      Serial.println("; returning to LOST...");
+      #endif
       bitCount = 0;
       rcv_state = LOST;
-      Serial.println();
-      Serial.println("Ambiguous bits; returning to LOST...");
       lostLockCount++;
       messageBuffer.clear();
       missingStartCounter = 0;
@@ -341,11 +361,13 @@ void messageParse(){
         missingStartCounter++;
         // If we dont' find the start within 1 second, then we exit SYNCH
         if(missingStartCounter > SAMPLING_FREQ/10){
+          #ifdef PRINT_CHAR
           Serial.println("Can't find start bit...");
+          Serial.println("Receiver can't find start bit; returning to LOST...");
+          #endif
           messageBuffer.clear();
           missingStartCounter = 0;
           rcv_state = LOST;
-          Serial.println("Receiver can't find start bit; returning to LOST...");
         }else{
           bitCount = 0;
           // Look for a 111110
