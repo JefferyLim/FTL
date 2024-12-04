@@ -7,6 +7,10 @@
 #include <IntervalTimer.h>
 #include <Teensy_PWM.h>
 
+//Microswitch Pins
+#define MOTOR_SIDE_SWITCH 22
+#define OTHER_SIDE_SWITCH 21
+
 #define USING_FLEX_TIMERS      true //Using flex timers for HW PWM
 
 #define M2  9
@@ -25,7 +29,7 @@
 
 #define SENSOR_ABS_THRESH 3600 // Sensor not detecting for motor control
 
-#define SAMPLING_FREQ 10000 // Hz
+#define SAMPLING_FREQ 20000 // Hz
 // Convert Sampling Frequency (Hz) to period (us)
 double sampling_period = 1000000/SAMPLING_FREQ; // us
 
@@ -36,11 +40,14 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 #define MOVEMENT_FREQ 1000
  
 //PRINT_SAMPLE, PRINT_RAW, PRINT_BIT, PRINT_CHAR, PRINT_SCAN, PRINT_NONE
-#define PRINT_BIT
+#define PRINT_NONE
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
 IntervalTimer positionTimer;
+
+bool hit_wall = false;
+int wall_counter = 0;
 
 const int left_pin = A0;
 const int mid_pin = A1;
@@ -126,6 +133,10 @@ void setup() {
 
   stepper = new Teensy_PWM(STEP_PIN, 500, 0);
   /////
+
+  //Microswitch pins
+  pinMode(MOTOR_SIDE_SWITCH, INPUT);
+  pinMode(OTHER_SIDE_SWITCH, INPUT);
 
 }
 
@@ -502,6 +513,8 @@ void stepMode(int mode){
   digitalWrite(M2, bitRead(mode, 2));
 }
 
+
+int last_direction = 0;
 #define SPEED 800
 void pwm_control(struct photodiode_array input){
   //start = micros();
@@ -513,38 +526,73 @@ void pwm_control(struct photodiode_array input){
   switch (input.position) {
     case LEFT:
       current_speed = -SPEED;
+      last_direction = 0;
       break;
     case MID_LEFT:
       stepMode(0);
+      last_direction = 0;
       current_speed = -SPEED;
       break;
     case MID:
       if(input.mid < input.left && input.mid < input.right){
         current_speed = 0;
       }
+      last_direction = 0;
       break;
     case MID_RIGHT:
+      last_direction = 0;
       stepMode(0);
       current_speed = SPEED;
       break;
     case RIGHT:
+      last_direction = 0;
       current_speed = SPEED;
       break;
     case UNKNOWN:
       if(rcv_state == LOST){
-        //printPosition(last_known_state);
-        if(last_known_state == RIGHT || last_known_state == MID_RIGHT){
-          current_speed = SPEED;
-        }else if(last_known_state == LEFT || last_known_state == MID_LEFT){
-          current_speed = -SPEED;
-        }else if(last_known_state == MID){
-          Serial.println("HI");
-          current_speed = -SPEED;
+        
+        if(last_direction == 0){
+          last_direction = 1;
+          //printPosition(last_known_state);
+          if(last_known_state == RIGHT || last_known_state == MID_RIGHT){
+            current_speed = SPEED;
+          }else if(last_known_state == LEFT || last_known_state == MID_LEFT){
+            current_speed = -SPEED;
+          }else if(last_known_state == MID){
+            current_speed = -SPEED;
+          }
         }
+
+        if(hit_wall == true){
+          wall_counter++;
+          if(wall_counter >= 40){
+            wall_counter = 0;
+            hit_wall = false;
+          }
+        }
+
+        if(digitalRead(MOTOR_SIDE_SWITCH) == HIGH && hit_wall == false){
+            hit_wall = true;
+            wall_counter = 0;
+            current_speed = SPEED;
+        }else if(digitalRead(OTHER_SIDE_SWITCH) == HIGH && hit_wall == false) {
+            hit_wall = true;
+            wall_counter = 0;
+            current_speed = -SPEED;
+        }
+
       }
       break;
     default:
       break;
+  }
+
+  if(last_direction == 0){
+    if(digitalRead(MOTOR_SIDE_SWITCH) == HIGH){
+            current_speed = 0;
+      }else if(digitalRead(OTHER_SIDE_SWITCH) == HIGH) {
+          current_speed = 0;
+      }
   }
 
   if(previous_position != UNKNOWN){
@@ -590,6 +638,9 @@ void loop() {
     }
   }
 
+  // Serial.println(digitalRead(MOTOR_SIDE_SWITCH));
+  // Serial.println(digitalRead(OTHER_SIDE_SWITCH));
+  // delay(10);
   //end = millis();
   //Serial.println(end - start);
 
