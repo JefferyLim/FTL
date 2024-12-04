@@ -13,6 +13,8 @@ int messageLength = -1;
 int counter = 0; //ascii character
 char count_msg[20];
 
+#define MAX_BYTE_LENGTH 500
+
 // Controls
 volatile int baud = 1000;
 volatile bool halt = 1;
@@ -160,7 +162,7 @@ void setup() {
   // https://forum.pjrc.com/index.php?threads/high-speed-digital-i-o-in-teensy-4-1.75179/
   CORE_PIN13_PADCONFIG |= 0xF9;
   CORE_PIN19_PADCONFIG |= 0xF9;
-  Serial.begin(9600);
+  Serial.begin(1000000);
   txTimer.begin(transmitter, baud);  // transmitter to run every 1 seconds
   usage();
 }
@@ -188,10 +190,12 @@ int parseInput() {
 void parseMessage() {
   int i = 0;
   char incomingByte;
-  char tempChars[100]; // support up to 100 bytes (arbitrary)
+  char tempChars[MAX_BYTE_LENGTH]; // support up to 100 bytes (arbitrary)
 
-  while (Serial.available() != 0 && i < 100) {
+  while (Serial.available() != 0 && i < MAX_BYTE_LENGTH) {
+    delay(10);
     incomingByte = Serial.read();
+    Serial.print(incomingByte);
     if (incomingByte == '\n') {
       tempChars[i] = 4;
       i++;
@@ -246,12 +250,14 @@ void loop() {
           baud = new_baud;
           txTimer.end();
           txTimer.begin(transmitter, int(round(0.5L / ((double)new_baud) * 1000000.0L)));
+          halt = 0;
           //txTimer.update(round(1/baud * 1000000));
         }
         break;
       case 'm':  // set new message
+        halt = 1;
         if (Serial.read() != ' ') {
-          Serial.println("ERROR: improper format. Expected m [string]");
+          Serial.print("ERROR: improper format. Expected m [string]. Got: ");
           break;
         } else {
           parseMessage();
@@ -262,6 +268,7 @@ void loop() {
             Serial.print(bitRead(message[int(floor(i / 8))], i % 8));
           }
           Serial.println(")");
+          halt = 0;
         }
         break;
       case 't':
@@ -283,6 +290,7 @@ void loop() {
           Serial.println("Counter transmit..");
           counter = 0;
         }
+        halt = 0;
         break;
       case '\n':
         break;
