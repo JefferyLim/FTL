@@ -46,9 +46,6 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 IntervalTimer sensor_readTimer; 
 IntervalTimer positionTimer;
 
-bool hit_wall = false;
-int wall_counter = 0;
-
 const int left_pin = A0;
 const int mid_pin = A1;
 const int right_pin = A2;
@@ -93,6 +90,54 @@ tracking_state track_state = SCANNING;
 position_state pos_state;
 message_state msg_state = START;
 receiver_state rcv_state = INIT;
+
+
+// Created photodiode array struct
+struct photodiode_array{
+  uint16_t left;
+  uint16_t mid;
+  uint16_t right;
+  uint8_t bit : 1;
+  uint8_t bit_confidence : 1;
+  uint8_t : 3;
+  uint8_t position : 3;
+  
+};
+
+// RingBuffers
+RingBuf<photodiode_array, 1024> adcBuffer; // for raw ADC outputs + other metrics
+RingBuf<photodiode_array, 1024> bitBuffer; // extra buffer before message parsing
+RingBuf<int, 1024> messageBuffer; // buffer for collecting bits for message parsing
+
+// Counters
+int lostLockCount = 0;
+int messageByteCount = 0;
+int missingStartCounter = 0;
+
+// Received Message
+int receivedByte = 0;
+int crcByte = 0;
+CRC8 crc;
+volatile int crc_index;
+volatile int crccode;
+
+// Flags
+volatile bool bufferOverflow = 0;
+
+// Performance Calcs
+volatile int start = 0;
+volatile int end = 0;
+
+volatile unsigned long startMillis;
+volatile unsigned long currentMillis;
+
+// Position/Motor
+int movement_counter = 0;
+volatile position_state previous_position = MID;
+volatile position_state last_known_state = MID;
+int current_speed = 0;
+bool hit_wall = false;
+int button_debounce = 0;
 
 void setup() {
   pinMode(left_pin, INPUT);
@@ -139,56 +184,14 @@ void setup() {
 
 }
 
-// Created photodiode array struct
-struct photodiode_array{
-  uint16_t left;
-  uint16_t mid;
-  uint16_t right;
-  uint8_t bit : 1;
-  uint8_t bit_confidence : 1;
-  uint8_t : 3;
-  uint8_t position : 3;
-  
-};
-
-// RingBuffers
-RingBuf<photodiode_array, 1024> adcBuffer; // for raw ADC outputs + other metrics
-RingBuf<photodiode_array, 1024> bitBuffer; // extra buffer before message parsing
-RingBuf<int, 1024> messageBuffer; // buffer for collecting bits for message parsing
-
-CRC8 crc;
-
-// Counters
-int lostLockCount = 0;
-int messageByteCount = 0;
-int missingStartCounter = 0;
-
-// Received Message
-int receivedByte = 0;
-int crcByte = 0;
-volatile int crc_index;
-volatile int crccode;
-
-// Flags
-volatile bool bufferOverflow = 0;
-
-// Performance Calcs
-volatile int start = 0;
-volatile int end = 0;
-
-// Position/Motor
-volatile position_state previous_position = MID;
-volatile position_state last_known_state = MID;
-int current_speed = 0;
-
 void read_sensors() { //Read analog sensor input
   //start = micros();
   struct photodiode_array dataset = {0}; 
 
-  //difference variables
-  int edge_dif;
-  int left_mid_dif;
-  int mid_right_dif;
+  // difference variables
+  // int edge_dif;
+  // int left_mid_dif;
+  // int mid_right_dif;
 
   dataset.left = adc->adc0->analogRead(left_pin);
   dataset.mid = adc->adc1->analogRead(mid_pin);
@@ -219,9 +222,9 @@ void read_sensors() { //Read analog sensor input
     dataset.bit_confidence = false;
   }
 
-  edge_dif = dataset.left - dataset.right;
-  left_mid_dif = dataset.left - dataset.mid;
-  mid_right_dif = dataset.mid - dataset.right;
+  // edge_dif = dataset.left - dataset.right;
+  // left_mid_dif = dataset.left - dataset.mid;
+  // mid_right_dif = dataset.mid - dataset.right;
 
 if(dataset.left > SENSOR_ABS_THRESH && dataset.mid > SENSOR_ABS_THRESH && dataset.right > SENSOR_OFF_THRESH){
     dataset.position = UNKNOWN;
@@ -516,9 +519,6 @@ int last_direction = 0;
 #define SPEED 800
 void pwm_control(struct photodiode_array input){
   //start = micros();
-  static int prev_speed;
-  // static int left_speed;
-  // static int right_speed;
 
   stepMode(0);
   switch (input.position) {
@@ -547,8 +547,11 @@ void pwm_control(struct photodiode_array input){
       current_speed = SPEED;
       break;
     case UNKNOWN:
+      // If the receiver is lost, then we have lost the signal entirely
       if(rcv_state == LOST){
         
+        // If we know what the last direction was, we should pick an initial direction
+        // and go that way
         if(last_direction == 0){
           last_direction = 1;
           //printPosition(last_known_state);
@@ -560,22 +563,24 @@ void pwm_control(struct photodiode_array input){
             current_speed = -SPEED;
           }
         }
-
+      
+        // debounce the button for wall detection
         if(hit_wall == true){
-          wall_counter++;
-          if(wall_counter >= 40){
-            wall_counter = 0;
+          button_debounce++;
+          if(button_debounce >= 40){
+            button_debounce = 0;
             hit_wall = false;
           }
         }
 
+        // If either wall has been hit, then we want to change our direction
         if(digitalRead(MOTOR_SIDE_SWITCH) == HIGH && hit_wall == false){
             hit_wall = true;
-            wall_counter = 0;
+            button_debounce = 0;
             current_speed = SPEED;
         }else if(digitalRead(OTHER_SIDE_SWITCH) == HIGH && hit_wall == false) {
             hit_wall = true;
-            wall_counter = 0;
+            button_debounce = 0;
             current_speed = -SPEED;
         }
 
@@ -585,30 +590,30 @@ void pwm_control(struct photodiode_array input){
       break;
   }
 
+  // If we hit the wall, then we want to stop moving
   if(last_direction == 0){
     if(digitalRead(MOTOR_SIDE_SWITCH) == HIGH){
-            current_speed = 0;
-      }else if(digitalRead(OTHER_SIDE_SWITCH) == HIGH) {
-          current_speed = 0;
-      }
+      current_speed = 0;
+    }else if(digitalRead(OTHER_SIDE_SWITCH) == HIGH) {
+      current_speed = 0;
+    }
   }
 
+  // Store the previous known position
   if(previous_position != UNKNOWN){
     last_known_state = previous_position;
   }
 
+  // Obtain the latest position
   previous_position = input.position;
 
   setSpeed(current_speed);
-  prev_speed = current_speed;
   //end = micros();
   //Serial.println(end - start);
 }
 
-
-int movement_counter = 0;
 void loop() {
-  //start = millis();
+  startMillis = millis();
   struct photodiode_array adcValues;
 
   if(bufferOverflow){
@@ -634,4 +639,7 @@ void loop() {
       messageParse();
     }
   }
+
+  currentMillis = millis();
+  Serial.println(currentMillis - startMillis);
 }
