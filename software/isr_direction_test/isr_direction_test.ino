@@ -1,34 +1,68 @@
 #include "CRC8.h"
 
-//Threshold values
+#define _PWM_LOGLEVEL_        0
+
 #include <ADC.h>
 #include <RingBuf.h>
 #include <IntervalTimer.h>
+#include <Teensy_PWM.h>
 
-#define SENSOR_DIF_THRESH 100
+//Microswitch Pins
+#define MOTOR_SIDE_SWITCH 22
+#define OTHER_SIDE_SWITCH 21
 
-#define SENSOR_ON_THRESH 400 // Sensor detecting
-#define SENSOR_OFF_THRESH 1000 // Sensor not detecting
+#define USING_FLEX_TIMERS      true //Using flex timers for HW PWM
 
-#define SAMPLING_FREQ 5000 // Hz
+#define M2  9
+#define M1  10
+#define M0  11
+#define STEP_PIN       7 //PWM Pins
+#define DIR_PIN        6
+
+//Threshold values
+#define SENSOR_DIF_THRESH 200
+#define SENSOR_SMALL_THRESH 50
+#define SENSOR_BIG_THRESH 200
+
+#define SENSOR_ON_THRESH 3600 // Sensor detecting for data
+#define SENSOR_OFF_THRESH 3800 // Sensor not detecting for data
+
+#define SENSOR_ABS_THRESH 3600 // Sensor not detecting for motor control
+
+#define SAMPLING_FREQ 20000 // Hz
 // Convert Sampling Frequency (Hz) to period (us)
 double sampling_period = 1000000/SAMPLING_FREQ; // us
 
-#define SAMPLING_RATIO 10 // SAMPLING_FREQ/TRANSMIT_FREQ
+#define SAMPLING_RATIO 5 // SAMPLING_FREQ/
+#define ON_THRESH 0 // SAMPLING_RATIO - ON_THRESH for 1's
+#define OFF_THRESH 1  // OFF_THRESH for 0's
 
-
-//PRINT_SAMPLE, PRINT_RAW, PRINT_BIT, PRINT_CHAR, PRINT_NONE
-#define PRINT_BIT 
+#define MOVEMENT_FREQ 1000
+ 
+//PRINT_SAMPLE, PRINT_RAW, PRINT_BIT, PRINT_CHAR, PRINT_SCAN, PRINT_NONE
+#define PRINT_NONE
 
 //Timers (to emulate multithreading)
 IntervalTimer sensor_readTimer; 
 IntervalTimer positionTimer;
+
+bool hit_wall = false;
+int wall_counter = 0;
 
 const int left_pin = A0;
 const int mid_pin = A1;
 const int right_pin = A2;
 
 ADC *adc = new ADC(); 
+
+//PWM Values:
+float frequency;
+float dutyCycle;
+
+Teensy_PWM* stepper; //Stepper object
+
+
+const int ledPin = LED_BUILTIN; // the pin with a LED
 
 //States
 enum tracking_state{
@@ -41,6 +75,7 @@ enum position_state{
 };
 
 enum receiver_state{
+  INIT,
   SYNCH,
   LOST,
 };
@@ -57,24 +92,24 @@ enum message_state{
 tracking_state track_state = SCANNING;
 position_state pos_state;
 message_state msg_state = START;
-receiver_state rcv_state = LOST;
+receiver_state rcv_state = INIT;
 
 void setup() {
   pinMode(left_pin, INPUT);
   pinMode(mid_pin, INPUT);
   pinMode(right_pin, INPUT);
-
+  pinMode(ledPin, OUTPUT);
   Serial.begin(115200);
 
   ///// ADC0 ////
   adc->adc0->setAveraging(4); // set number of averages
-  adc->adc0->setResolution(10); // set bits of resolution
+  adc->adc0->setResolution(16); // set bits of resolution
   adc->adc0->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED); // change the conversion speed
   adc->adc0->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED); // change the sampling speed
 
   ///// ADC1 ////
   adc->adc1->setAveraging(4); // set number of averages
-  adc->adc1->setResolution(10); // set bits of resolution
+  adc->adc1->setResolution(16); // set bits of resolution
   adc->adc1->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED); // change the conversion speed
   adc->adc1->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED); // change the sampling speed
 
@@ -83,6 +118,25 @@ void setup() {
   
   sensor_readTimer.begin(read_sensors,(int)sampling_period); //Read senors every 0.01 seconds
   //positionTimer.begin(find_position,100000); //Process every 0.1 seconds
+
+  //// PWM ////
+  pinMode(DIR_PIN, OUTPUT);
+  pinMode(M0, OUTPUT);
+  pinMode(M1, OUTPUT);
+  pinMode(M2, OUTPUT);
+  #if USING_FLEX_TIMERS
+    Serial.print(F("\nStarting PWM_StepperControl using FlexTimers on "));
+  #else
+    Serial.print(F("\nStarting PWM_StepperControl using QuadTimers on "));
+  #endif
+
+  stepper = new Teensy_PWM(STEP_PIN, 500, 0);
+  /////
+
+  //Microswitch pins
+  pinMode(MOTOR_SIDE_SWITCH, INPUT);
+  pinMode(OTHER_SIDE_SWITCH, INPUT);
+
 }
 
 // Created photodiode array struct
@@ -98,9 +152,9 @@ struct photodiode_array{
 };
 
 // RingBuffers
-RingBuf<photodiode_array, 500> adcBuffer; // for raw ADC outputs + other metrics
-RingBuf<photodiode_array, 500> bitBuffer; // extra buffer before message parsing
-RingBuf<int, 500> messageBuffer; // buffer for collecting bits for message parsing
+RingBuf<photodiode_array, 1024> adcBuffer; // for raw ADC outputs + other metrics
+RingBuf<photodiode_array, 1024> bitBuffer; // extra buffer before message parsing
+RingBuf<int, 1024> messageBuffer; // buffer for collecting bits for message parsing
 
 CRC8 crc;
 
@@ -122,9 +176,14 @@ volatile bool bufferOverflow = 0;
 volatile int start = 0;
 volatile int end = 0;
 
+// Position/Motor
+volatile position_state previous_position = MID;
+volatile position_state last_known_state = MID;
+int current_speed = 0;
+
 void read_sensors() { //Read analog sensor input
-  start = micros();
-  struct photodiode_array dataset = {0};
+  //start = micros();
+  struct photodiode_array dataset = {0}; 
 
   //difference variables
   int edge_dif;
@@ -138,13 +197,25 @@ void read_sensors() { //Read analog sensor input
   if(dataset.left <= SENSOR_ON_THRESH || dataset.right <= SENSOR_ON_THRESH \
    || dataset.mid <= SENSOR_ON_THRESH){
     dataset.bit = true;
+    
+    #ifdef PRINT_RAW
+    Serial.print(1);
+    #endif
     dataset.bit_confidence = true;
   }else if(dataset.left >= SENSOR_OFF_THRESH && dataset.right >= SENSOR_OFF_THRESH \
     && dataset.mid >= SENSOR_OFF_THRESH) {
     dataset.bit = false;
     dataset.bit_confidence = true;
+    
+    #ifdef PRINT_RAW
+    Serial.print(0);
+    #endif
   }else{
-    dataset.bit = true;
+    
+    #ifdef PRINT_RAW
+    Serial.print(0);
+    #endif
+    dataset.bit = false;
     dataset.bit_confidence = false;
   }
 
@@ -152,29 +223,26 @@ void read_sensors() { //Read analog sensor input
   left_mid_dif = dataset.left - dataset.mid;
   mid_right_dif = dataset.mid - dataset.right;
 
-
-  if(dataset.left > 1000 && dataset.mid > 1000 && dataset.right > 1000){
+if(dataset.left > SENSOR_ABS_THRESH && dataset.mid > SENSOR_ABS_THRESH && dataset.right > SENSOR_OFF_THRESH){
     dataset.position = UNKNOWN;
   }else{
 
-    if(abs(edge_dif - left_mid_dif) < SENSOR_DIF_THRESH){ //If left of diodes
-      dataset.position = LEFT;
+    if(dataset.mid < dataset.left && dataset.mid < dataset.right){
+      dataset.position = MID; 
     }
 
-    if(edge_dif < 0 && mid_right_dif < 0){ //If between mid and left diodes
-      dataset.position = MID_LEFT;
+    if(dataset.left < dataset.mid && dataset.left < dataset.right){
+      dataset.position = LEFT; 
+      if(abs(dataset.mid - dataset.left) < SENSOR_SMALL_THRESH){
+        dataset.position = MID_LEFT;
+      }
     }
 
-    if(abs(edge_dif) < abs(left_mid_dif) && abs(edge_dif) < abs(mid_right_dif)){ //iF on mid diode
-      dataset.position = MID;
-    }
-
-    if(edge_dif > 0 && left_mid_dif > 0){  //If between mid and right diodes
-      dataset.position = MID_RIGHT;
-    }
-
-    if(abs(edge_dif - mid_right_dif) < SENSOR_DIF_THRESH && dataset.right < dataset.left){ //If right of diodes
+    if(dataset.right < dataset.mid && dataset.right < dataset.left){
       dataset.position = RIGHT;
+      if(abs(dataset.mid - dataset.right) < SENSOR_SMALL_THRESH){
+        dataset.position = MID_RIGHT;
+      }
     }
   }
 
@@ -182,87 +250,12 @@ void read_sensors() { //Read analog sensor input
     Serial.println("ERROR: Can't push to buffer");
   }
 
-  end = micros();
-}
-
-void find_position(){ //Determine position of transmitter
-//   //Difference calculations
-//   edge_dif = left - right;
-//   left_mid_dif = left - mid;
-//   mid_right_dif = mid - right;
-
-//   if(left > SENSOR_THRESH && mid > SENSOR_THRESH && right > SENSOR_THRESH){ //If no good signal
-//     track_state = SCANNING; 
-//   }else{
-//     track_state = LOCKED;
-//     if(abs(edge_dif - left_mid_dif) < SENSOR_DIF_THRESH){ //If left of diodes
-//       pos_state = LEFT;
-//     }
-
-//     if(edge_dif < 0 && mid_right_dif < 0){ //If between mid and left diodes
-//       pos_state = MID_LEFT;
-//     }
-
-//     if(abs(edge_dif) < abs(left_mid_dif) && abs(edge_dif) < abs(mid_right_dif)){ //iF on mid diode
-//       pos_state = MID;
-//     }
-
-//     if(edge_dif > 0 && left_mid_dif > 0){  //If between mid and right diodes
-//       pos_state = MID_RIGHT;
-//     }
-
-//     if(abs(edge_dif - mid_right_dif) < SENSOR_DIF_THRESH && right < left){ //If right of diodes
-//       pos_state = RIGHT;
-//     }
-//   }
-
-  //Print states
-  // if(track_state == LOCKED){
-  //   switch (pos_state) {
-  //     case LEFT:
-  //       Serial.println("LEFT");
-  //       break;
-  //     case MID_LEFT:
-  //       Serial.println("MID_LEFT");
-  //       break;
-  //     case MID:
-  //       Serial.println("MID");
-  //       break;
-  //     case MID_RIGHT:
-  //       Serial.println("MID_RIGHT");
-  //       break;
-  //     case RIGHT:
-  //       Serial.println("RIGHT");
-  //       break;
-  //     default:
-  //       Serial.println("Unknown state");
-  //       break;
-  //   }
-  // }else{
-  //   Serial.println("Scanning");
-  // }
-  // Serial.print(left);
-  // Serial.print(" | ");
-  // Serial.print(mid);
-  // Serial.print(" | ");
-  // Serial.println(right);
-  // LEFT: -x -x 0
-  // MIDL - ? -
-  // MID - + -
-  // MIDR + + ?
-  // RIGHT: + 0 +
-
-
-  // Serial.print(edge_dif);
-  // Serial.print(" | ");
-  // Serial.print(left_mid_dif);
-  // Serial.print(" | ");
-  // Serial.println(mid_right_dif);
+  //end = micros();
+  //Serial.println(end - start);
 }
 
 // Print function for printing the photodiode struct
 void print_photodiode_struct(struct photodiode_array input){
-
   Serial.print(input.left);
   Serial.print(" | ");
   Serial.print(input.mid);
@@ -273,25 +266,31 @@ void print_photodiode_struct(struct photodiode_array input){
   Serial.print(" | ");
   Serial.print(input.bit_confidence );
   Serial.print(" | ");
+  printPosition(input.position);
+  Serial.print(" | ");
+  printPosition(last_known_state);
+  Serial.println();
+}
 
-  switch (input.position) {
+void printPosition(int input){
+  switch (input) {
     case LEFT:
-      Serial.println("LEFT");
+      Serial.print("LEFT");
       break;
     case MID_LEFT:
-      Serial.println("MID_LEFT");
+      Serial.print("MID_LEFT");
       break;
     case MID:
-      Serial.println("MID");
+      Serial.print("MID");
       break;
     case MID_RIGHT:
-      Serial.println("MID_RIGHT");
+      Serial.print("MID_RIGHT");
       break;
     case RIGHT:
-      Serial.println("RIGHT");
+      Serial.print("RIGHT");
       break;
     default:
-      Serial.println("UNKNOWN");
+      Serial.print("UNKNOWN");
       break;
   }
 }
@@ -303,14 +302,16 @@ void messageParse(){
   int receivedBit = 0;
 
   // Double check that buffer is >5
-  if(bitBuffer.size() < 5){
+  if(bitBuffer.size() < SAMPLING_RATIO){
     return;
   }
 
   // If we are in a "LOST" state... try and find presence of a signal...
   // A presence of a signal is 5 '1's or IR LED ON 
-  if(rcv_state == LOST){
-    for(int i = 0; i < 5; i++){
+  if(rcv_state == LOST || rcv_state == INIT){
+    
+    digitalWriteFast(ledPin, 1);
+    for(int i = 0; i < SAMPLING_RATIO; i++){
       // Look at the next 5 values
       bitBuffer.peek(adcValues, i);
       // Note, that if the bit confidence is high, then we can use the these samples
@@ -325,31 +326,38 @@ void messageParse(){
   
     // If we find at least 4 '1' samples, lets start parsing
     // Move from LOST -> SYNCH
-    if(bitCount >= 4){
+    if(bitCount >= (SAMPLING_RATIO - ON_THRESH)){
+      #ifdef PRINT_CHAR
       Serial.println("Sync");
+      #endif
       rcv_state = SYNCH;
       bitCount = 0;
     }else{
       bitBuffer.pop(adcValues);
     }
   }else if(rcv_state == SYNCH){
+    digitalWriteFast(ledPin, 0);
     // Begin counting bits
-    for(int i = 0; i < 5; i++){
+    for(int i = 0; i < SAMPLING_RATIO; i++){
       bitBuffer.pop(adcValues);
       bitCount += adcValues.bit;
     }
 
     // Do a majority vote
     // Anything inbetween is ambiguous, and we will exit SYNCH
-    if(bitCount >= 4){
+    if(bitCount >= SAMPLING_RATIO - ON_THRESH){
       messageBuffer.push(1);
-    }else if(bitCount <= 1){
+    }else if(bitCount <= OFF_THRESH){
       messageBuffer.push(0);
     }else{
+      #ifdef PRINT_CHAR
+      Serial.println();
+      Serial.print("Ambiguous bits: ");
+      Serial.print(bitCount);
+      Serial.println("; returning to LOST...");
+      #endif
       bitCount = 0;
       rcv_state = LOST;
-      Serial.println();
-      Serial.println("Ambiguous bits; returning to LOST...");
       lostLockCount++;
       messageBuffer.clear();
       missingStartCounter = 0;
@@ -360,12 +368,14 @@ void messageParse(){
       if(msg_state == START) {
         missingStartCounter++;
         // If we dont' find the start within 1 second, then we exit SYNCH
-        if(missingStartCounter > SAMPLING_FREQ){
+        if(missingStartCounter > SAMPLING_FREQ/10){
+          #ifdef PRINT_CHAR
           Serial.println("Can't find start bit...");
+          Serial.println("Receiver can't find start bit; returning to LOST...");
+          #endif
           messageBuffer.clear();
           missingStartCounter = 0;
           rcv_state = LOST;
-          Serial.println("Receiver can't find start bit; returning to LOST...");
         }else{
           bitCount = 0;
           // Look for a 111110
@@ -415,12 +425,12 @@ void messageParse(){
         if(bitShift >= 8){
           msg_state = CRC;
           bitShift = 0;
-        
-        
           #ifdef PRINT_CHAR
-          Serial.print(messageByteCount);
-          Serial.print(": ");
-          Serial.print((char)receivedByte);
+          if(receivedByte == 4){
+            Serial.println();
+          }else{
+            Serial.print((char)receivedByte);
+          }
           #endif
           
           #ifdef PRINT_BIT
@@ -469,22 +479,152 @@ void messageParse(){
       }
     }
   }
+  //end = micros();
+  //Serial.println(end - start);
 }
 
+void setSpeed(int speed)
+{
+  if (speed == 0)
+  {
+    // Use DC = 0 to stop stepper
+    stepper->setPWM(STEP_PIN, abs(speed), 0);
+  }
+  else
+  {
+    //  Set the frequency of the PWM output and a duty cycle of 50%
+    digitalWrite(DIR_PIN, (speed < 0));
+    stepper->setPWM(STEP_PIN, abs(speed), 50);
+  }
+}
+
+
+
+// 0 -> full step
+// 1 -> 1/2 step
+// 2 -> 1/4 step
+//..
+// 7 0 -> 1/256 step
+void stepMode(int mode){
+  digitalWrite(M0, bitRead(mode, 0));
+  digitalWrite(M1, bitRead(mode, 1));
+  digitalWrite(M2, bitRead(mode, 2));
+}
+
+
+int last_direction = 0;
+#define SPEED 800
+void pwm_control(struct photodiode_array input){
+  //start = micros();
+  static int prev_speed;
+  // static int left_speed;
+  // static int right_speed;
+
+  stepMode(0);
+  switch (input.position) {
+    case LEFT:
+      current_speed = -SPEED;
+      last_direction = 0;
+      break;
+    case MID_LEFT:
+      stepMode(0);
+      last_direction = 0;
+      current_speed = -SPEED;
+      break;
+    case MID:
+      if(input.mid < input.left && input.mid < input.right){
+        current_speed = 0;
+      }
+      last_direction = 0;
+      break;
+    case MID_RIGHT:
+      last_direction = 0;
+      stepMode(0);
+      current_speed = SPEED;
+      break;
+    case RIGHT:
+      last_direction = 0;
+      current_speed = SPEED;
+      break;
+    case UNKNOWN:
+      if(rcv_state == LOST){
+        
+        if(last_direction == 0){
+          last_direction = 1;
+          //printPosition(last_known_state);
+          if(last_known_state == RIGHT || last_known_state == MID_RIGHT){
+            current_speed = SPEED;
+          }else if(last_known_state == LEFT || last_known_state == MID_LEFT){
+            current_speed = -SPEED;
+          }else if(last_known_state == MID){
+            current_speed = -SPEED;
+          }
+        }
+
+        if(hit_wall == true){
+          wall_counter++;
+          if(wall_counter >= 40){
+            wall_counter = 0;
+            hit_wall = false;
+          }
+        }
+
+        if(digitalRead(MOTOR_SIDE_SWITCH) == HIGH && hit_wall == false){
+            hit_wall = true;
+            wall_counter = 0;
+            current_speed = SPEED;
+        }else if(digitalRead(OTHER_SIDE_SWITCH) == HIGH && hit_wall == false) {
+            hit_wall = true;
+            wall_counter = 0;
+            current_speed = -SPEED;
+        }
+
+      }
+      break;
+    default:
+      break;
+  }
+
+  if(last_direction == 0){
+    if(digitalRead(MOTOR_SIDE_SWITCH) == HIGH){
+            current_speed = 0;
+      }else if(digitalRead(OTHER_SIDE_SWITCH) == HIGH) {
+          current_speed = 0;
+      }
+  }
+
+  if(previous_position != UNKNOWN){
+    last_known_state = previous_position;
+  }
+
+  previous_position = input.position;
+
+  setSpeed(current_speed);
+  prev_speed = current_speed;
+  //end = micros();
+  //Serial.println(end - start);
+}
+
+
+int movement_counter = 0;
 void loop() {
+  //start = millis();
   struct photodiode_array adcValues;
 
   if(bufferOverflow){
     Serial.println("ERROR: RingBuffer Overflow");
   }
-
   // Attempt to pop ADC values
   if(adcBuffer.pop(adcValues)){
+    movement_counter++;
+    if(movement_counter == MOVEMENT_FREQ){
+      pwm_control(adcValues);
+      movement_counter = 0;
+    }
+
     #ifdef PRINT_SAMPLE
       print_photodiode_struct(adcValues);
     #endif
-
-    #ifndef PRINT_SAMPLE
     // Pushing ADC bits to a buffer for messages
     if(!bitBuffer.push(adcValues)){
       Serial.println("ERROR: Can't push to bitBuffer");
@@ -493,50 +633,5 @@ void loop() {
     if(bitBuffer.size() > 5){
       messageParse();
     }
-    #endif
-    //Serial.println(current_bit);
-    // message_buf[i] = current_bit;
-    // i++;
   }
-
-  // if(i == 1024){
-  //   sensor_readTimer.end();
-  //   adcBuffer.clear();
-  //   //char ascii_string[128];
-  //   //int ascii_index = 0;
-  //   for(int j = 0; j < 1024; j++){
-  //     Serial.print(message_buf[j]);
-  //   }
-  //   // for(int j = 7; j < 1024; j = j + 8){
-  //   //   //char temp_byte;
-  //   //   int temp_sum = 0;
-  //   //   int multiplier = 0;
-  //   //   for(int k = j; k < j + 7; k++){
-  //   //     temp_sum += message_buf[k] * (1 << multiplier++);
-  //   //   }
-  //   //   ascii_string[ascii_index] = (char)temp_sum;
-  //   //   ascii_index++;
-  //   // }
-
-  //   // for(int f = 0; f < 128; f++){
-  //   //     if(ascii_string[f] == 0){
-  //   //       Serial.print("NULL");
-  //   //     }else{
-  //   //       Serial.print(ascii_string[f]);
-  //   //     }
-  //   // }
-  //   Serial.println();
-  //   delay(10000);
-  //   sensor_readTimer.begin(read_sensors,(int)sampling_period);
-  // }
-
-  //edge_difference = val0 - val2;
-  //Serial.println(edge_difference);
-  //if(edge_difference > 0){
-  //  Serial.println("Move left!");
-  //}else if(edge_difference < 0){
-  //  Serial.println("Move right!");
-  //}else{
-  //  Serial.println("Stay still!");
-  //}
 }
