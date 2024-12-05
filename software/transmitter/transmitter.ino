@@ -10,11 +10,14 @@ const int irPin = 2;            // the pin with IR diode
 // messages for transmission
 char* message;
 int messageLength = -1;
-int counter = 48; //ascii character
+int counter = 0; //ascii character
+char count_msg[20];
+
+#define MAX_BYTE_LENGTH 500
 
 // Controls
-volatile int baud = 9600;
-volatile bool halt = 0;
+volatile int baud = 1000;
+volatile bool halt = 1;
 
 // Transmit variables
 int ledState = LOW;
@@ -70,14 +73,14 @@ void transmitter() {
          char currentByte = 0;
          int currentBit = messageCount % 8;
 
-        if(tx_mode == MESSAGE){
+        if(tx_mode == MESSAGE){  
           currentByte = message[int(floor(messageCount / 8))];
           currentBit = messageCount % 8;
         }else{ // tx_mode == COUNTER
-          if(counter > 57){ //ascii for 9
-            counter = 48; //ascii for 0
-          }
-          currentByte = counter;
+          sprintf(count_msg, "%d%c", counter, 4);
+          messageLength = strlen(count_msg); 
+          currentByte = count_msg[int(floor(messageCount / 8))];
+          currentBit = messageCount % 8;
         } 
         
         #ifdef DEBUG
@@ -103,7 +106,6 @@ void transmitter() {
           crccode = crc.calc();
           tx_state = CRC;
           crc_index = 0;
-          counter++;
         }
       //set LEDs high so resting state is on
       }else if (tx_state == CRC){
@@ -112,8 +114,9 @@ void transmitter() {
           digitalWriteFast(ledPin, HIGH);
           digitalWriteFast(irPin, HIGH);
           tx_state = END;
-          if (messageCount >= messageLength * 8) {
+          if (messageCount >= messageLength * 8) { //end of the message -- NOT BYTE
             messageCount = 0;
+            counter++;
           }
           crc.restart(); //remove all previous letters from the CRC calculation
         }else{
@@ -159,8 +162,8 @@ void setup() {
   // https://forum.pjrc.com/index.php?threads/high-speed-digital-i-o-in-teensy-4-1.75179/
   CORE_PIN13_PADCONFIG |= 0xF9;
   CORE_PIN19_PADCONFIG |= 0xF9;
-  Serial.begin(9600);
-  txTimer.begin(transmitter, 1000000);  // transmitter to run every 1 seconds
+  Serial.begin(1000000);
+  txTimer.begin(transmitter, baud);  // transmitter to run every 1 seconds
   usage();
 }
 
@@ -187,11 +190,15 @@ int parseInput() {
 void parseMessage() {
   int i = 0;
   char incomingByte;
-  char tempChars[100]; // support up to 100 bytes (arbitrary)
+  char tempChars[MAX_BYTE_LENGTH]; // support up to 100 bytes (arbitrary)
 
-  while (Serial.available() != 0 && i < 100) {
+  while (Serial.available() != 0 && i < MAX_BYTE_LENGTH) {
+    delay(10);
     incomingByte = Serial.read();
+    Serial.print(incomingByte);
     if (incomingByte == '\n') {
+      tempChars[i] = 4;
+      i++;
       break;
     }
     tempChars[i] = incomingByte;
@@ -243,12 +250,14 @@ void loop() {
           baud = new_baud;
           txTimer.end();
           txTimer.begin(transmitter, int(round(0.5L / ((double)new_baud) * 1000000.0L)));
+          halt = 0;
           //txTimer.update(round(1/baud * 1000000));
         }
         break;
       case 'm':  // set new message
+        halt = 1;
         if (Serial.read() != ' ') {
-          Serial.println("ERROR: improper format. Expected m [string]");
+          Serial.print("ERROR: improper format. Expected m [string]. Got: ");
           break;
         } else {
           parseMessage();
@@ -259,6 +268,7 @@ void loop() {
             Serial.print(bitRead(message[int(floor(i / 8))], i % 8));
           }
           Serial.println(")");
+          halt = 0;
         }
         break;
       case 't':
@@ -278,8 +288,9 @@ void loop() {
           Serial.println("Message transmit..");
         } else if(tx_mode == COUNTER){
           Serial.println("Counter transmit..");
-          counter = 48;
+          counter = 0;
         }
+        halt = 0;
         break;
       case '\n':
         break;
