@@ -99,7 +99,6 @@ void setup() {
   pinMode(mid_pin, INPUT);
   pinMode(right_pin, INPUT);
   pinMode(ledPin, OUTPUT);
-
   Serial.begin(115200);
 
   ///// ADC0 ////
@@ -298,8 +297,6 @@ void printPosition(int input){
 
 int bitShift = 0;
 void messageParse(){
-  
-  //start = micros();
   struct photodiode_array adcValues;
   int bitCount = 0;
   int receivedBit = 0;
@@ -428,7 +425,6 @@ void messageParse(){
         if(bitShift >= 8){
           msg_state = CRC;
           bitShift = 0;
-        
           #ifdef PRINT_CHAR
           if(receivedByte == 4){
             Serial.println();
@@ -463,6 +459,8 @@ void messageParse(){
             Serial.print(", Expected: ");
             Serial.print(crccode, HEX);
             Serial.println(")");
+          }else{
+            Serial.println();
           }
           crcByte = 0;
           crc.restart(); //remove all previous letters from the CRC calculation
@@ -627,7 +625,6 @@ void loop() {
     #ifdef PRINT_SAMPLE
       print_photodiode_struct(adcValues);
     #endif
-
     // Pushing ADC bits to a buffer for messages
     if(!bitBuffer.push(adcValues)){
       Serial.println("ERROR: Can't push to bitBuffer");
@@ -637,11 +634,4 @@ void loop() {
       messageParse();
     }
   }
-
-  // Serial.println(digitalRead(MOTOR_SIDE_SWITCH));
-  // Serial.println(digitalRead(OTHER_SIDE_SWITCH));
-  // delay(10);
-  //end = millis();
-  //Serial.println(end - start);
-
 }
