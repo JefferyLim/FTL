@@ -17,7 +17,7 @@ FTL utilizes the following libraries. Utilize the `Import ZIP Library` feature o
 [insert image of system]
 
 ### Project Structure
-
+```
 .
 ├── ...
 ├── test                    # Test files (alternatively `spec` or `tests`)
@@ -25,3 +25,4 @@ FTL utilizes the following libraries. Utilize the `Import ZIP Library` feature o
 │   ├── integration         # End-to-end, integration tests (alternatively `e2e`)
 │   └── unit                # Unit tests
 └── README.md
+```
