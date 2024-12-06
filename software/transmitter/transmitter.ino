@@ -16,7 +16,7 @@ char count_msg[20];
 #define MAX_BYTE_LENGTH 500
 
 // Controls
-volatile int baud = 1000;
+volatile int baud = 4000;
 volatile bool halt = 1;
 
 // Transmit variables
@@ -231,6 +231,12 @@ void loop() {
     Serial.println();
     switch (incomingByte) {
       case 's':  // start or stop transmitter
+        halt = 1;
+        delay(5000);
+        halt = 0;
+        delay(5000);
+        halt = 1;
+        delay(5000);
         halt = !halt;
         if (halt) {
           Serial.println("stopping...");

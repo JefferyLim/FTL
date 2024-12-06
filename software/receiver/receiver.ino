@@ -29,7 +29,7 @@
 
 #define SENSOR_ABS_THRESH 3600 // Sensor not detecting for motor control
 
-#define SAMPLING_FREQ 20000 // Hz
+#define SAMPLING_FREQ 40000 // Hz
 // Convert Sampling Frequency (Hz) to period (us)
 double sampling_period = 1000000/SAMPLING_FREQ; // us
 
@@ -37,14 +37,14 @@ double sampling_period = 1000000/SAMPLING_FREQ; // us
 #define ON_THRESH 0 // SAMPLING_RATIO - ON_THRESH for 1's
 #define OFF_THRESH 1  // OFF_THRESH for 0's
 
-#define MOVEMENT_FREQ 1000
+#define MOVEMENT_FREQ 500
  
 //PRINT_SAMPLE, PRINT_RAW, PRINT_BIT, PRINT_CHAR, PRINT_SCAN, PRINT_NONE
-#define PRINT_NONE
+#define PRINT_CHAR
 
 //Timers (to emulate multithreading)
-IntervalTimer sensor_readTimer; 
-IntervalTimer positionTimer;
+IntervalTimer sensor_readTimer;
+IntervalTimer motor_controlTimer;
 
 const int left_pin = A0;
 const int mid_pin = A1;
@@ -91,6 +91,11 @@ position_state pos_state;
 message_state msg_state = START;
 receiver_state rcv_state = INIT;
 
+volatile char incoming_counter[10];
+volatile int incoming_counter_counter = 0;
+volatile int lost_counts = 0;
+volatile int last_counter = -1;
+volatile int current_counter = 0;
 
 // Created photodiode array struct
 struct photodiode_array{
@@ -107,6 +112,7 @@ struct photodiode_array{
 // RingBuffers
 RingBuf<photodiode_array, 1024> adcBuffer; // for raw ADC outputs + other metrics
 RingBuf<photodiode_array, 1024> bitBuffer; // extra buffer before message parsing
+RingBuf<photodiode_array, 1024> motorBuffer; // extra buffer before motor control
 RingBuf<int, 1024> messageBuffer; // buffer for collecting bits for message parsing
 
 // Counters
@@ -158,34 +164,28 @@ void setup() {
   adc->adc1->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED); // change the conversion speed
   adc->adc1->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED); // change the sampling speed
 
-  sensor_readTimer.priority(0); //Set sens  or priority higher
-  positionTimer.priority(1);
+  sensor_readTimer.priority(0); //Set sensor priority higher
+  motor_controlTimer.priority(1);
   
-  sensor_readTimer.begin(read_sensors,(int)sampling_period); //Read senors every 0.01 seconds
-  //positionTimer.begin(find_position,100000); //Process every 0.1 seconds
+  sensor_readTimer.begin(read_sensors,(int)sampling_period); 
+  motor_controlTimer.begin(pwm_control,(int)sampling_period*MOVEMENT_FREQ);
 
   //// PWM ////
   pinMode(DIR_PIN, OUTPUT);
   pinMode(M0, OUTPUT);
   pinMode(M1, OUTPUT);
   pinMode(M2, OUTPUT);
-  #if USING_FLEX_TIMERS
-    Serial.print(F("\nStarting PWM_StepperControl using FlexTimers on "));
-  #else
-    Serial.print(F("\nStarting PWM_StepperControl using QuadTimers on "));
-  #endif
-
   stepper = new Teensy_PWM(STEP_PIN, 500, 0);
   /////
 
   //Microswitch pins
-  pinMode(MOTOR_SIDE_SWITCH, INPUT);
-  pinMode(OTHER_SIDE_SWITCH, INPUT);
+  pinMode(MOTOR_SIDE_SWITCH, INPUT_PULLUP);
+  pinMode(OTHER_SIDE_SWITCH, INPUT_PULLUP);
 
 }
 
 void read_sensors() { //Read analog sensor input
-  //start = micros();
+  start = micros();
   struct photodiode_array dataset = {0}; 
 
   // difference variables
@@ -253,8 +253,9 @@ if(dataset.left > SENSOR_ABS_THRESH && dataset.mid > SENSOR_ABS_THRESH && datase
     Serial.println("ERROR: Can't push to buffer");
   }
 
-  //end = micros();
-  //Serial.println(end - start);
+  end = micros();
+  // Serial.print("ADC: ");
+  // Serial.println(end - start);
 }
 
 // Print function for printing the photodiode struct
@@ -335,6 +336,8 @@ void messageParse(){
       #endif
       rcv_state = SYNCH;
       bitCount = 0;
+      
+      incoming_counter_counter = 0;
     }else{
       bitBuffer.pop(adcValues);
     }
@@ -430,9 +433,31 @@ void messageParse(){
           bitShift = 0;
           #ifdef PRINT_CHAR
           if(receivedByte == 4){
+
+            incoming_counter[incoming_counter_counter] = '\0';
+            incoming_counter_counter = 0;
+            current_counter = atoi(incoming_counter);       // Convert to int using atoi
+
+            // For the first count, just ignore this...
+            if(last_counter == -1){
+              last_counter = current_counter;
+            }else if(last_counter+1 != current_counter){
+              lost_counts += current_counter - last_counter;
+            }
+
+            last_counter = current_counter;
+
+            Serial.print(", Lost counts: ");
+            Serial.print(lost_counts);
+
+
+
             Serial.println();
+            
           }else{
             Serial.print((char)receivedByte);
+            incoming_counter[incoming_counter_counter] = (char)receivedByte;
+            incoming_counter_counter++;
           }
           #endif
           
@@ -462,9 +487,9 @@ void messageParse(){
             Serial.print(", Expected: ");
             Serial.print(crccode, HEX);
             Serial.println(")");
-          }else{
-            Serial.println();
           }
+
+          
           crcByte = 0;
           crc.restart(); //remove all previous letters from the CRC calculation
           msg_state = END;
@@ -515,10 +540,15 @@ void stepMode(int mode){
 }
 
 
+
+elapsedMicros sincePrint;
 int last_direction = 0;
 #define SPEED 800
-void pwm_control(struct photodiode_array input){
-  //start = micros();
+#define SPEED1 600
+void pwm_control(){
+  start = micros();
+  struct photodiode_array input;
+  motorBuffer.pop(input);
 
   stepMode(0);
   switch (input.position) {
@@ -574,11 +604,11 @@ void pwm_control(struct photodiode_array input){
         }
 
         // If either wall has been hit, then we want to change our direction
-        if(digitalRead(MOTOR_SIDE_SWITCH) == HIGH && hit_wall == false){
+        if(digitalRead(MOTOR_SIDE_SWITCH) == LOW && hit_wall == false){
             hit_wall = true;
             button_debounce = 0;
             current_speed = SPEED;
-        }else if(digitalRead(OTHER_SIDE_SWITCH) == HIGH && hit_wall == false) {
+        }else if(digitalRead(OTHER_SIDE_SWITCH) == LOW && hit_wall == false) {
             hit_wall = true;
             button_debounce = 0;
             current_speed = -SPEED;
@@ -592,9 +622,9 @@ void pwm_control(struct photodiode_array input){
 
   // If we hit the wall, then we want to stop moving
   if(last_direction == 0){
-    if(digitalRead(MOTOR_SIDE_SWITCH) == HIGH){
+    if(digitalRead(MOTOR_SIDE_SWITCH) == LOW){
       current_speed = 0;
-    }else if(digitalRead(OTHER_SIDE_SWITCH) == HIGH) {
+    }else if(digitalRead(OTHER_SIDE_SWITCH) == LOW) {
       current_speed = 0;
     }
   }
@@ -608,12 +638,15 @@ void pwm_control(struct photodiode_array input){
   previous_position = input.position;
 
   setSpeed(current_speed);
-  //end = micros();
-  //Serial.println(end - start);
+  // end = micros();
+  // Serial.print("Motor: ");
+  // Serial.println(end - start);
 }
 
+
+int abc = 0;
+
 void loop() {
-  startMillis = millis();
   struct photodiode_array adcValues;
 
   if(bufferOverflow){
@@ -623,9 +656,11 @@ void loop() {
   if(adcBuffer.pop(adcValues)){
     movement_counter++;
     if(movement_counter == MOVEMENT_FREQ){
-      pwm_control(adcValues);
+      motorBuffer.pushOverwrite(adcValues);
       movement_counter = 0;
     }
+
+    // motorBuffer.pushOverwrite(adcValues);
 
     #ifdef PRINT_SAMPLE
       print_photodiode_struct(adcValues);
@@ -638,8 +673,7 @@ void loop() {
     if(bitBuffer.size() > 5){
       messageParse();
     }
+    
   }
-
-  currentMillis = millis();
-  Serial.println(currentMillis - startMillis);
+  
 }
