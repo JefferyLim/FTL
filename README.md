@@ -17,12 +17,17 @@ FTL utilizes the following libraries. Utilize the `Import ZIP Library` feature o
 [insert image of system]
 
 ### Project Structure
+
 ```
 .
 ├── ...
-├── test                    # Test files (alternatively `spec` or `tests`)
-│   ├── benchmarks          # Load and stress tests
-│   ├── integration         # End-to-end, integration tests (alternatively `e2e`)
-│   └── unit                # Unit tests
+├── documentation           # Documentation
+│   ├── drawio              # drawio diagrams
+├── modeling                # modeling
+├── software                # software
+│   ├── adc_test            # initial testing for ADCs
+│   ├── irled_tests         # initial testing for the IR LEDs
+│   └── receiver            # receiver code
+│   └── transmitter         # transmitter code
 └── README.md
 ```
