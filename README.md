@@ -15,8 +15,8 @@ FTL utilizes the following libraries. Utilize the `Import ZIP Library` feature o
 [CRC](https://github.com/RobTillaart/CRC)
 
 ## Architecture
-
-[insert image of system]
+![transmitter_system drawio](https://github.com/user-attachments/assets/45543223-8e2f-48b6-bc26-d829aa6363bd)
+![reciever_system drawio](https://github.com/user-attachments/assets/201bb00c-31d3-4361-9fd7-11cc45c7dde6)
 
 ### Project Structure
 
