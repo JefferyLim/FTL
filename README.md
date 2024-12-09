@@ -15,8 +15,26 @@ FTL utilizes the following libraries. Utilize the `Import ZIP Library` feature o
 [CRC](https://github.com/RobTillaart/CRC)
 
 ## Architecture
+
+### Transmitter
 ![transmitter_system drawio](https://github.com/user-attachments/assets/45543223-8e2f-48b6-bc26-d829aa6363bd)
+The transmitter can be set in one of three modes:
+1. LED Mode - A simple 50% duty cycle square wave used mostly for testing.
+2. Message Mode - Takes a user's input, and transmit the message out.
+3. Counter Mode - Increments a counter, and transmits the number. 
+
+The transmitter works similarly to UART. It has a start bit, 8 bit preamble, 8 bit payload, and 8 bit CRC. The payload could be longer, but we chose to use 8 bits in order to debug it. 
+
+### Receiver
+
 ![reciever_system drawio](https://github.com/user-attachments/assets/201bb00c-31d3-4361-9fd7-11cc45c7dde6)
+
+The receiver is comprised of three subsystems:
+1. ADC Sampling - Samples the 3 photodiodes at 5x the transmit rate
+2. Message Parsing - Parses 5 samples at a time to determine a `1` or a `0` bit
+3. Motor Control - Moves the motor to maintain sight to the transmitter
+
+We oversample the recieving signal in order to conduct a vote on the value of a bit. A specific part of the hardware is unable to meet high throughput, causing major skewing in the signal when the signal goes from 0 to 1. 
 
 ### Project Structure
 
