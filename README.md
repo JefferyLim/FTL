@@ -2,6 +2,17 @@
 
 Follow the Light (FTL) is the final project for ENG EC545. The goal of this project was to explore the different course topics. Our team decided to explore the ideas of a IR-based communication project. Taking inspiration from TeraByte InfraRed Delivery ([TBIRD](https://www.ll.mit.edu/sites/default/files/other/doc/2023-02/TVO_Technology_Highlight_12_TBird.pdf)), we wanted to create a system that would transmit data to a receiver. The receiver, would utilize the sensor data to track and follow the transmitter.
 
+We implemented many concepts that we learned from the course such as:
+1. Finite State Machines
+  - In order to build the message transmitter (preamble -> payload -> crc), reciever's motor control, receiver's scanning mode, and receiver's message parser
+2. Modeling
+  - To validate our designs to make sure our logic makes sense and works
+3. Timing Analysis and WCET
+  - Ensure that our design (and microcontroller) is capable of meeting the timing needs for the system. The ADC is critical for every subcomponent in the receiver, so it must always sample on time 
+4. Datasheet and Specs
+  - Because we worked with new hardware, we needed to understand the specs to would help us with our specifications
+
+
 ## Installation
 
 Install the [Arduino IDE](https://support.arduino.cc/hc/en-us/articles/360019833020-Download-and-install-Arduino-IDE) and the [Teensyduino](https://www.pjrc.com/teensy/td_download.html) add-on.
