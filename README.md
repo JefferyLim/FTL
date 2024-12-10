@@ -58,7 +58,7 @@ We oversample the recieving signal in order to conduct a vote on the value of a 
 ├── software                # software
 │   ├── adc_test            # initial testing for ADCs
 │   ├── irled_tests         # initial testing for the IR LEDs
-│   └── receiver            # receiver code
+│   ├── receiver            # receiver code
 │   └── transmitter         # transmitter code
 └── README.md
 ```
